@@ -1,0 +1,19 @@
+[package]
+edition = "2021"
+name = "lurkr"
+version = "0.1.0"
+[dependencies]
+config = "*"
+env_logger = "*"
+log = "*"
+rand = "*"
+regex = "*"
+rustls = "*"
+serde = "*"
+serde_derive = "*"
+structopt = "*"
+webpki = "*"
+
+[dependencies.tokio]
+features = ["full"]
+version = "*"

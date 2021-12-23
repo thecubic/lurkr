@@ -1,0 +1,22 @@
+# lurkr SNI routing definition file
+[listener]
+addr = "127.0.0.1"
+port = 9337
+# define what the listener does when no rules match
+no_mapping = "unrecognized_name"
+# this defines rule ordering
+mappings = ["blah-io", "google-dot-com", "final"]
+
+# a RegexMatcher rule, which must regex-match the requested SNI
+[mapping.google-dot-com]
+matcher = '.*google\.com^'
+downstreams = ["google.com:443"]
+
+# an ExactMatcher rule, which must exactly match the requested SNI
+[mapping.blah-io]
+exact = "blah.io"
+downstreams = ["localhost:9339"]
+
+# a UniversalMatcher rule, which always matches
+[mapping.final]
+downstreams = ["twitter.com:443"]
