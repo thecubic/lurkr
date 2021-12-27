@@ -149,7 +149,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // clone it, wishing we could use fn ptrs
         let my_no_mapping_fn = no_mapping_fn.clone();
         tokio::spawn(async move {
-            let mut peekbuf = [0; 512];
+            let mut peekbuf = [0; 1024]; 
             // "peek" into the socket to retrieve TLS
             // ClientHello and SNI
             let rsz = socket
@@ -160,7 +160,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if rsz == 0 {
                 return;
             }
-
             // Deserialize the TLS ClientHello
             let msg = Message::try_from(
                 OpaqueMessage::read(&mut Reader::init(&peekbuf))
