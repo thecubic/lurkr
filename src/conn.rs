@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc};
 
 use crate::tls;
 use crate::dispatcher::Dispatcher;
@@ -33,17 +33,20 @@ pub async fn handle_connection(socket: TcpStream, mymatchlist: Arc<Vec<Matcher>>
     // or do the no-mapping procedure
     if let Some(hn) = session_sni {
         let indicated: &str = std::str::from_utf8(&hn.0 .0).unwrap();
-        if let Some(dispatcher) = Dispatcher::from_matching(indicated, mymatchlist).await {
+        if let Some(dispatcher) = Dispatcher::from_matching(indicated, mymatchlist) {
             dispatcher.do_dispatch(socket).await
         } else {
             // should be unreachable
-            panic!("")
+            panic!("no dispatcher for indicated");
         }
     } else {
         // Didn't get SNI, send to first universal match
         log::debug!("no name indicated");
-        if let Some(dispatcher) = Dispatcher::from_matching("", mymatchlist).await {
+        if let Some(dispatcher) = Dispatcher::from_matching("", mymatchlist) {
             dispatcher.do_dispatch(socket).await
+        } else {
+            log::warn!("no dispatcher for zero-string: elvis left the building");
+            panic!("zero-string dispatcher missing");
         }
     }
 }
