@@ -10,17 +10,16 @@ mod matcher;
 mod runtime;
 mod tls;
 
+use config::Config;
+
 use conf::Configuration;
-use log::{info};
+use log::info;
 use std::path::PathBuf;
 use std::sync::Arc;
 use structopt::StructOpt;
-use tokio::net::{TcpListener};
+use tokio::net::TcpListener;
 
 use crate::matcher::Matcher;
-
-
-
 
 #[derive(Debug, StructOpt)]
 struct CliOptions {
@@ -30,8 +29,6 @@ struct CliOptions {
     #[structopt(short, long, parse(from_os_str))]
     conf: PathBuf,
 }
-
-
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -45,12 +42,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .filter_level(log::LevelFilter::Info)
             .init();
     }
-    let mut cfg = ::config::Config::default();
-    cfg.merge(::config::File::with_name(
-        cli_opt.conf.to_str().expect("invalid pathname"),
-    ))?;
 
-    let fullcfg: Configuration = cfg.try_into().expect("could not deserialize configuration");
+    let settings = Config::builder()
+        .add_source(config::File::with_name(
+            cli_opt.conf.to_str().expect("invalid pathname"),
+        ))
+        // Add in settings from the environment (with a prefix of APP)
+        // Eg.. `APP_DEBUG=1 ./target/app` would set the `debug` key
+        .add_source(config::Environment::with_prefix("LURKR"))
+        .build()
+        .unwrap();
+
+    let fullcfg: Configuration = settings
+        .try_deserialize()
+        .expect("could not deserialize configuration");
+    // let fullcfg: Configuration = settings
+    // .try_into()
+    //
+    // .add_source(File::from_str("bad", MyFormat))
+    // .add_source(File::from_str("good", MyFormat))
+    // .build();
 
     let _no_mapping = if let Some(chose_no_mapping) = &fullcfg.listener.no_mapping {
         chose_no_mapping.clone()
@@ -69,5 +80,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let _ = tokio::spawn(conn::handle_connection(socket, mymatchlist));
     }
 }
-
-
