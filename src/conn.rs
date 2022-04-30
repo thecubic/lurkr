@@ -1,9 +1,12 @@
-use std::{sync::Arc};
+use std::sync::Arc;
 
-use crate::tls;
 use crate::dispatcher::Dispatcher;
+use crate::tls;
 
-use rustls::{internal::msgs::{message::{OpaqueMessage, Message}, codec::Reader}};
+use rustls::internal::msgs::{
+    codec::Reader,
+    message::{Message, OpaqueMessage},
+};
 use tokio::net::TcpStream;
 
 use crate::matcher::Matcher;
@@ -33,6 +36,7 @@ pub async fn handle_connection(socket: TcpStream, mymatchlist: Arc<Vec<Matcher>>
     // or do the no-mapping procedure
     if let Some(hn) = session_sni {
         let indicated: &str = std::str::from_utf8(&hn.0 .0).unwrap();
+        log::debug!("indicated: {:?}", indicated);
         if let Some(dispatcher) = Dispatcher::from_matching(indicated, mymatchlist) {
             dispatcher.do_dispatch(socket).await
         } else {

@@ -56,12 +56,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let fullcfg: Configuration = settings
         .try_deserialize()
         .expect("could not deserialize configuration");
-    // let fullcfg: Configuration = settings
-    // .try_into()
-    //
-    // .add_source(File::from_str("bad", MyFormat))
-    // .add_source(File::from_str("good", MyFormat))
-    // .build();
 
     let _no_mapping = if let Some(chose_no_mapping) = &fullcfg.listener.no_mapping {
         chose_no_mapping.clone()

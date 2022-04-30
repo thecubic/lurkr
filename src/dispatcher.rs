@@ -11,7 +11,10 @@ use tokio::{
     net::TcpStream,
 };
 
-use crate::{conf::{MappingEntry, TLSKeyCertificateEntry}, matcher::Matcher};
+use crate::{
+    conf::{MappingEntry, TLSKeyCertificateEntry},
+    matcher::Matcher,
+};
 
 #[derive(Debug, Clone)]
 pub enum Dispatcher {
@@ -102,9 +105,9 @@ impl Dispatcher {
                 } => {
                     if exact.as_str() == indicated {
                         debug!("rule {} matched exact: {}", rulename, indicated);
-                        Some(dispatcher)
+                        return Some(dispatcher.clone());
                     } else {
-                        None
+                        return None;
                     }
                 }
                 Matcher::RegexMatcher {
@@ -114,9 +117,9 @@ impl Dispatcher {
                 } => {
                     if regex.is_match(indicated) {
                         debug!("rule {} regexed: {}", rulename, indicated);
-                        Some(dispatcher)
+                        return Some(dispatcher.clone());
                     } else {
-                        None
+                        return None;
                     }
                 }
                 Matcher::UniversalMatcher {
@@ -124,9 +127,9 @@ impl Dispatcher {
                     dispatcher,
                 } => {
                     debug!("rule {} universal match", rulename);
-                    Some(dispatcher)
+                    return Some(dispatcher.clone());
                 }
-            };
+            }
         }
         None
     }
@@ -162,4 +165,3 @@ async fn tcp_proxy(mut incoming: TcpStream, addr: &String) -> io::Result<()> {
     tokio::try_join!(left, right)?;
     Ok(())
 }
-
