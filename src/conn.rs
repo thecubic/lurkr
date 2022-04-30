@@ -1,0 +1,49 @@
+use std::sync::Arc;
+
+use crate::tls;
+use crate::dispatcher::Dispatcher;
+
+use rustls::{internal::msgs::{message::{OpaqueMessage, Message}, codec::Reader}};
+use tokio::net::TcpStream;
+
+use crate::matcher::Matcher;
+
+pub async fn handle_connection(socket: TcpStream, mymatchlist: Arc<Vec<Matcher>>) {
+    let mut peekbuf = [0; 1024];
+    // "peek" into the socket to retrieve TLS
+    // ClientHello and SNI
+    let rsz = socket
+        .peek(&mut peekbuf)
+        .await
+        .expect("couldn't peek from socket");
+    // EOF case
+    if rsz == 0 {
+        return;
+    }
+    // Deserialize the TLS ClientHello
+    let omsg = OpaqueMessage::read(&mut Reader::init(&peekbuf))
+        .expect("couldn't read TLS message")
+        .into_plain_message();
+    let msg = Message::try_from(omsg).expect("Couldn't decipher message");
+
+    // Extract the SNI payload and determine indicated name
+    let session_sni = tls::extract_sni(&msg.payload).await;
+
+    // Core rule-matching; find an appropriate matcher
+    // or do the no-mapping procedure
+    if let Some(hn) = session_sni {
+        let indicated: &str = std::str::from_utf8(&hn.0 .0).unwrap();
+        if let Some(dispatcher) = Dispatcher::from_matching(indicated, mymatchlist).await {
+            dispatcher.do_dispatch(socket).await
+        } else {
+            // should be unreachable
+            panic!("")
+        }
+    } else {
+        // Didn't get SNI, send to first universal match
+        log::debug!("no name indicated");
+        if let Some(dispatcher) = Dispatcher::from_matching("", mymatchlist).await {
+            dispatcher.do_dispatch(socket).await
+        }
+    }
+}

@@ -9,6 +9,6 @@ RUN cargo install --path .
 FROM rust:latest as runner
 COPY --from=builder /usr/local/cargo/bin/lurkr /usr/local/bin/lurkr
 
-# this means mount the config as /lurkr.toml
+# this means one must mount the config as /lurkr.toml
 CMD ["lurkr", "--conf", "lurkr.toml"]
 
