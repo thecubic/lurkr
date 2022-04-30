@@ -106,8 +106,6 @@ impl Dispatcher {
                     if exact.as_str() == indicated {
                         debug!("rule {} matched exact: {}", rulename, indicated);
                         return Some(dispatcher.clone());
-                    } else {
-                        return None;
                     }
                 }
                 Matcher::RegexMatcher {
@@ -118,8 +116,6 @@ impl Dispatcher {
                     if regex.is_match(indicated) {
                         debug!("rule {} regexed: {}", rulename, indicated);
                         return Some(dispatcher.clone());
-                    } else {
-                        return None;
                     }
                 }
                 Matcher::UniversalMatcher {
