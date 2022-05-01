@@ -13,6 +13,9 @@ serde = "*"
 serde_derive = "*"
 structopt = "*"
 webpki = "*"
+tokio-rustls = "*"
+rustls-pemfile = "*"
+ring = "*"
 
 [dependencies.tokio]
 features = ["full"]

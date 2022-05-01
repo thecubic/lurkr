@@ -14,6 +14,7 @@ use config::Config;
 
 use conf::Configuration;
 use log::info;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use structopt::StructOpt;
@@ -63,7 +64,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "unrecognized_name".to_string()
     };
 
-    let matchlist: Arc<Vec<Matcher>> = Arc::new(Matcher::from_configuration(&fullcfg));
+    // let tlsmap: HashMap<String, Arc<TlsAcceptor>>;
+    let tlsmap = Arc::new(tls::acceptors_from_configuration(&fullcfg)?);
+    let matchlist: Arc<Vec<Matcher>> =
+        Arc::new(Matcher::from_configuration_tlses(&fullcfg, tlsmap));
     let final_addr = format!("{}:{}", fullcfg.listener.addr, fullcfg.listener.port);
     let lsnr = TcpListener::bind(&final_addr).await?;
     info!("listening on {}", final_addr);

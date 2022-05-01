@@ -1,7 +1,13 @@
+use std::{collections::HashMap, sync::Arc};
+
 use regex::Regex;
 use rustls::internal::msgs::enums::{AlertDescription, AlertLevel};
+use tokio_rustls::TlsAcceptor;
 
-use crate::{dispatcher::Dispatcher, conf::{Configuration, MappingEntry}};
+use crate::{
+    conf::{Configuration, MappingEntry},
+    dispatcher::Dispatcher,
+};
 
 #[derive(Debug)]
 pub enum Matcher {
@@ -26,12 +32,15 @@ pub enum Matcher {
 
 impl Matcher {
     // Matchers define the SNI-to-execution mapping
-    pub fn from_configuration(cfg_obj: &Configuration) -> Vec<Matcher> {
+    pub fn from_configuration_tlses(
+        cfg_obj: &Configuration,
+        tlses: Arc<HashMap<String, Arc<TlsAcceptor>>>,
+    ) -> Vec<Matcher> {
         let mut matchers = Vec::<Matcher>::new();
         // TODO: preserve order feature in config-rs
         for mapping in &cfg_obj.listener.mappings {
             let me: &MappingEntry = &cfg_obj.mapping[mapping];
-            if let Some(dispatcher) = Dispatcher::from_mappingentry(me) {
+            if let Some(dispatcher) = Dispatcher::from_mappingentry_tlses(me, tlses.clone()) {
                 if me.exact.is_some() && me.matcher.is_some() {
                     panic!(
                         "mapping entry {} cannot have both exact and regex matching",
@@ -51,8 +60,9 @@ impl Matcher {
                 } else if let Some(regex) = &me.matcher {
                     matchers.push(Matcher::RegexMatcher {
                         rulename: mapping.clone(),
-                        regex: Regex::new(regex.as_str())
-                            .expect(format!("faulty regex {} in mapping {}", regex, mapping).as_str()),
+                        regex: Regex::new(regex.as_str()).expect(
+                            format!("faulty regex {} in mapping {}", regex, mapping).as_str(),
+                        ),
                         dispatcher: dispatcher,
                     })
                 }

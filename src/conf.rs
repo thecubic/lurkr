@@ -6,6 +6,7 @@ pub struct Listener {
     pub port: u16,
     pub no_mapping: Option<String>,
     pub mappings: Vec<String>,
+    pub tlses: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -22,18 +23,19 @@ struct TLSKeyCertificatePathEntry {
 }
 
 #[derive(Debug, Deserialize)]
-struct TlsConfigEntry {
+pub struct TlsConfigEntry {
     // key literal or path
-    tls_key: Option<String>,
-    tls_key_path: Option<String>,
-    tls_cert: Option<Vec<String>>,
+    pub key: Option<String>,
+    pub key_path: Option<String>,
+    pub certs: Option<Vec<Vec<u8>>>,
+    pub certs_path: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct Configuration {
     pub listener: Listener,
     pub mapping: HashMap<String, MappingEntry>,
-    // tlses: HashMap<String,
+    pub tls: HashMap<String, TlsConfigEntry>,
 }
 
 #[derive(Debug, Deserialize)]
