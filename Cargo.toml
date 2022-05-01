@@ -16,6 +16,7 @@ webpki = "*"
 tokio-rustls = "*"
 rustls-pemfile = "*"
 ring = "*"
+rcgen = "*"
 
 [dependencies.tokio]
 features = ["full"]

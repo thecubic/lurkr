@@ -13,3 +13,6 @@ Cargo.lock
 # Added by cargo
 
 /target
+
+# conveniently-ignored folder for testing
+/testing/

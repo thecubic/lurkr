@@ -1,40 +1,23 @@
-use config::Map;
 use rand::prelude::SliceRandom;
-use rustls::{
-    internal::msgs::{
-        enums::{AlertDescription, AlertLevel},
-        message::{Message, PlainMessage},
-    },
-    server::Acceptor,
-    ServerConfig,
+use rustls::internal::msgs::{
+    enums::{AlertDescription, AlertLevel},
+    message::{Message, PlainMessage},
 };
-use std::{
-    collections::HashMap,
-    fmt::{Error, Formatter},
-    sync::Arc,
-};
+use std::{collections::HashMap, fmt::Formatter, sync::Arc};
 use tokio::{
     io::{self, AsyncWriteExt},
     net::TcpStream,
 };
 use tokio_rustls::{server::TlsStream, TlsAcceptor};
 
-use crate::{
-    conf::{MappingEntry, TLSKeyCertificateEntry},
-    matcher::Matcher,
-};
+use crate::{conf::MappingEntry, matcher::Matcher};
 
 impl std::fmt::Debug for Dispatcher {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        // TODO: make this not shit
         f.debug_struct("Dispatcher").finish()
     }
 }
-
-// impl std::fmt::Debug for tokio_rustls::TlsAcceptor {
-//     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-//         f.debug_struct("Dispatcher").finish()
-//     }
-// }
 
 // -Debug because TlsAcceptor
 #[derive(Clone)]
@@ -49,18 +32,20 @@ pub enum Dispatcher {
         // reference to a tls acceptor for upstream term
         acceptor: Arc<TlsAcceptor>,
     },
-    // https://github.com/rustls/rustls/blob/5bda754ac18f37eb39132f89fb5522494b6202eb/rustls-mio/examples/tlsserver.rs
 
+    // NOT IMPLEMENTED
     // sends the client one 404 or whatever
     // "help me I can't program" is the best hiding strat
-    // TODO: Apache test page?
-    HTTPSStaticDispatcher {
-        response_code: u8,
-        response_body: String,
-    },
-    HTTPSRedirectDispatcher {
-        //
-    },
+    // HTTPSStaticDispatcher {
+    //     response_code: u8,
+    //     response_body: String,
+    // },
+
+    // NOT IMPLEMENTED
+    // HTTPSRedirectDispatcher {
+    //     //
+    // },
+
     // you don't want no part of this shit
     // so send them a TLS "PC LOAD LETTER"
     TLSAlertDispatcher {
@@ -88,6 +73,7 @@ impl Dispatcher {
                 alert_level,
                 alert_description,
             } => {
+                log::debug!("sending TLS alert & closing stream");
                 clientsock
                     .write(
                         &PlainMessage::try_from(Message::build_alert(
@@ -100,6 +86,8 @@ impl Dispatcher {
                     )
                     .await
                     .expect("Error sending TLS alert");
+                // FIN here, otherwise the socket will RST
+                let _ = clientsock.shutdown().await;
             }
             Dispatcher::TLSWrappedDownstreamDispatcher {
                 downstreams,
@@ -117,23 +105,12 @@ impl Dispatcher {
         }
     }
     // Dispatchers determine how to execute
-    pub fn from_mappingentry(me: &MappingEntry) -> Option<Dispatcher> {
-        // if me.tls.is_some() && me.downstreams.is_some() {
-        // }
-        if let Some(downstreams) = &me.downstreams {
-            return Some(Dispatcher::TCPDownstreamDispatcher {
-                downstreams: downstreams.clone(),
-            });
-        }
-        None
-    }
-
     pub fn from_mappingentry_tlses(
         me: &MappingEntry,
         tlses: Arc<HashMap<String, Arc<TlsAcceptor>>>,
     ) -> Option<Dispatcher> {
         if let Some(downstreams) = &me.downstreams {
-            if let Some(tlsname) = &me.tls_config {
+            if let Some(tlsname) = &me.tls {
                 log::debug!("TLSWrappedDownstreamDispatcher");
                 if let Some(acceptor) = tlses.get(tlsname) {
                     log::debug!("found tls acceptor");
@@ -143,7 +120,7 @@ impl Dispatcher {
                     });
                 } else {
                     log::debug!("not found tls acceptor");
-                    return None;
+                    panic!("named tls config not found");
                 }
             } else {
                 log::debug!("TCPDownstreamDispatcher");
@@ -190,8 +167,8 @@ impl Dispatcher {
     }
 }
 
-async fn tcp_proxy_addr(mut incoming: TcpStream, addr: &String) -> io::Result<()> {
-    let mut outgoing = TcpStream::connect(addr).await?;
+async fn tcp_proxy_addr(incoming: TcpStream, addr: &String) -> io::Result<()> {
+    let outgoing = TcpStream::connect(addr).await?;
     tcp_proxy_stream(incoming, outgoing).await
 }
 
@@ -224,10 +201,7 @@ async fn tcp_proxy_stream(mut incoming: TcpStream, mut outgoing: TcpStream) -> i
     Ok(())
 }
 
-async fn tls_proxy_stream(
-    mut incoming: TlsStream<TcpStream>,
-    mut outgoing: TcpStream,
-) -> io::Result<()> {
+async fn tls_proxy_stream(incoming: TlsStream<TcpStream>, outgoing: TcpStream) -> io::Result<()> {
     let (mut ri, mut wi) = tokio::io::split(incoming);
     let (mut ro, mut wo) = tokio::io::split(outgoing);
 
@@ -257,11 +231,11 @@ async fn tls_proxy_stream(
 }
 
 async fn tls_proxy_addr(
-    mut incoming: TcpStream,
+    incoming: TcpStream,
     addr: &String,
     acceptor: Arc<TlsAcceptor>,
 ) -> io::Result<()> {
-    let mut outgoing = TcpStream::connect(addr).await?;
-    let mut plaintext_stream = acceptor.accept(incoming).await?;
+    let outgoing = TcpStream::connect(addr).await?;
+    let plaintext_stream = acceptor.accept(incoming).await?;
     tls_proxy_stream(plaintext_stream, outgoing).await
 }

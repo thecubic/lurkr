@@ -7,14 +7,12 @@ mod conf;
 mod conn;
 mod dispatcher;
 mod matcher;
-mod runtime;
 mod tls;
 
 use config::Config;
 
 use conf::Configuration;
 use log::info;
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use structopt::StructOpt;

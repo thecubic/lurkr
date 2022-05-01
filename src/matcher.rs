@@ -4,10 +4,7 @@ use regex::Regex;
 use rustls::internal::msgs::enums::{AlertDescription, AlertLevel};
 use tokio_rustls::TlsAcceptor;
 
-use crate::{
-    conf::{Configuration, MappingEntry},
-    dispatcher::Dispatcher,
-};
+use crate::{conf::Configuration, dispatcher::Dispatcher};
 
 #[derive(Debug)]
 pub enum Matcher {
@@ -37,37 +34,36 @@ impl Matcher {
         tlses: Arc<HashMap<String, Arc<TlsAcceptor>>>,
     ) -> Vec<Matcher> {
         let mut matchers = Vec::<Matcher>::new();
-        // TODO: preserve order feature in config-rs
-        for mapping in &cfg_obj.listener.mappings {
-            let me: &MappingEntry = &cfg_obj.mapping[mapping];
-            if let Some(dispatcher) = Dispatcher::from_mappingentry_tlses(me, tlses.clone()) {
-                if me.exact.is_some() && me.matcher.is_some() {
+        // TODO: ordering? weights? preserve order feature in config-rs?
+        for (mapname, mapspec) in cfg_obj.mapping.iter() {
+            if let Some(dispatcher) = Dispatcher::from_mappingentry_tlses(&mapspec, tlses.clone()) {
+                if mapspec.exact.is_some() && mapspec.matcher.is_some() {
                     panic!(
                         "mapping entry {} cannot have both exact and regex matching",
-                        mapping
+                        mapname
                     );
-                } else if me.exact.is_none() && me.matcher.is_none() {
+                } else if mapspec.exact.is_none() && mapspec.matcher.is_none() {
                     matchers.push(Matcher::UniversalMatcher {
-                        rulename: mapping.clone(),
+                        rulename: mapname.clone(),
                         dispatcher: dispatcher,
                     });
-                } else if let Some(direct) = &me.exact {
+                } else if let Some(direct) = &mapspec.exact {
                     matchers.push(Matcher::ExactMatcher {
-                        rulename: mapping.clone(),
+                        rulename: mapname.clone(),
                         exact: direct.clone(),
                         dispatcher: dispatcher,
                     });
-                } else if let Some(regex) = &me.matcher {
+                } else if let Some(regex) = &mapspec.matcher {
                     matchers.push(Matcher::RegexMatcher {
-                        rulename: mapping.clone(),
+                        rulename: mapname.clone(),
                         regex: Regex::new(regex.as_str()).expect(
-                            format!("faulty regex {} in mapping {}", regex, mapping).as_str(),
+                            format!("faulty regex {} in mapping {}", regex, mapname).as_str(),
                         ),
                         dispatcher: dispatcher,
                     })
                 }
             } else {
-                panic!("mapping entry {} is not dispatchable", mapping);
+                panic!("mapping entry {} is not dispatchable", mapname);
             }
         }
         // the no_mapping handler is just a UniversalMatcher at the end
