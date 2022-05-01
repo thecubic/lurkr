@@ -23,6 +23,15 @@ pub async fn handle_connection(socket: TcpStream, mymatchlist: Arc<Vec<Matcher>>
     if rsz == 0 {
         return;
     }
+
+    if peekbuf
+        .windows(4)
+        .any(move |subslice| subslice == "HTTP".as_bytes())
+    {
+        log::debug!("HTTP connection detected, this only supports TLS");
+        return;
+    }
+
     // Deserialize the TLS ClientHello
     let omsg = OpaqueMessage::read(&mut Reader::init(&peekbuf))
         .expect("couldn't read TLS message")
