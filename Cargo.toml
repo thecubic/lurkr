@@ -21,3 +21,7 @@ rcgen = "*"
 [dependencies.tokio]
 features = ["full"]
 version = "*"
+
+[dependencies.hyper]
+features = ["full"]
+version = "*"

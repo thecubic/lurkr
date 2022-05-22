@@ -18,7 +18,14 @@ impl std::fmt::Debug for Dispatcher {
         f.debug_struct("Dispatcher").finish()
     }
 }
+use std::convert::Infallible;
 
+use hyper::{
+    server::conn::AddrStream,
+    service::{make_service_fn, service_fn},
+    Method, StatusCode,
+};
+use hyper::{Body, Request, Response, Server};
 // -Debug because TlsAcceptor
 #[derive(Clone)]
 pub enum Dispatcher {
@@ -36,10 +43,11 @@ pub enum Dispatcher {
     // NOT IMPLEMENTED
     // sends the client one 404 or whatever
     // "help me I can't program" is the best hiding strat
-    // HTTPSStaticDispatcher {
-    //     response_code: u8,
-    //     response_body: String,
-    // },
+    HTTPSStaticDispatcher {
+        response_code: u8,
+        response_body: String,
+        acceptor: Arc<TlsAcceptor>,
+    },
 
     // NOT IMPLEMENTED
     // HTTPSRedirectDispatcher {
@@ -100,6 +108,21 @@ impl Dispatcher {
                 tls_proxy_addr(clientsock, chosen, acceptor.clone())
                     .await
                     .expect("couldn't TLS-proxy");
+            }
+            Dispatcher::HTTPSStaticDispatcher {
+                response_code,
+                response_body,
+                acceptor,
+            } => {
+                log::debug!("i'm very lost right now");
+                https_answer_request(
+                    clientsock,
+                    *response_code,
+                    response_body.clone(),
+                    acceptor.clone(),
+                )
+                .await
+                .expect("couldn't HTTPS static dispatch");
             }
             _ => {}
         }
@@ -238,4 +261,54 @@ async fn tls_proxy_addr(
     let outgoing = TcpStream::connect(addr).await?;
     let plaintext_stream = acceptor.accept(incoming).await?;
     tls_proxy_stream(plaintext_stream, outgoing).await
+}
+
+async fn https_answer_request(
+    incoming: TcpStream,
+    response_code: u8,
+    response_body: String,
+    acceptor: Arc<TlsAcceptor>,
+) -> Result<(), ()> {
+    // let make_svc = make_service_fn(|_conn| async { Ok::<_, Infallible>(service_fn(hello)) });
+    let make_svc = make_service_fn(|_conn: &env_logger::Target| {
+        // let remote_addr = socket.remote_addr();
+        async move {
+            Ok::<_, Infallible>(service_fn(move |_: Request<Body>| async move {
+                Ok::<_, Infallible>(Response::new(Body::from("Hi")))
+            }))
+        }
+    });
+
+    // let service = make_service_fn(|_conn: &env_logger::Target| async {
+    // Ok::<_, io::Error>(service_fn(resultify))
+    // });
+    Ok(())
+}
+
+// let server = Server::builder(TlsAcceptor::new(tls_cfg, incoming)).serve(service);
+
+async fn resultify(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
+    let mut response = Response::new(Body::empty());
+    *response.status_mut() = StatusCode::OK;
+    *response.body_mut() = Body::from("byezers\n");
+    Ok(response)
+}
+
+async fn echo(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
+    let mut response = Response::new(Body::empty());
+    match (req.method(), req.uri().path()) {
+        // Help route.
+        (&Method::GET, "/") => {
+            *response.body_mut() = Body::from("Try POST /echo\n");
+        }
+        // Echo service route.
+        (&Method::POST, "/echo") => {
+            *response.body_mut() = req.into_body();
+        }
+        // Catch-all 404.
+        _ => {
+            *response.status_mut() = StatusCode::NOT_FOUND;
+        }
+    };
+    Ok(response)
 }

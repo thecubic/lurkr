@@ -6,6 +6,7 @@ extern crate serde_derive;
 mod conf;
 mod conn;
 mod dispatcher;
+mod https;
 mod matcher;
 mod tls;
 
@@ -62,7 +63,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "unrecognized_name".to_string()
     };
 
-    // let tlsmap: HashMap<String, Arc<TlsAcceptor>>;
     let tlsmap = Arc::new(tls::acceptors_from_configuration(&fullcfg)?);
     let matchlist: Arc<Vec<Matcher>> =
         Arc::new(Matcher::from_configuration_tlses(&fullcfg, tlsmap));
