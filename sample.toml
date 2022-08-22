@@ -2,21 +2,62 @@
 [listener]
 addr = "127.0.0.1"
 port = 9337
-# define what the listener does when no rules match
-no_mapping = "unrecognized_name"
-# this defines rule ordering
-mappings = ["blah-io", "google-dot-com", "final"]
 
+# mapping evaluation is in file ordering
+# no UniversalMatcher at the end == unrecognized_name
+
+# try: curl --resolve somewhere:9337:127.0.0.1 -k https://somewhere:9337/ -v
 # a RegexMatcher rule, which must regex-match the requested SNI
-[mapping.google-dot-com]
-matcher = '.*google\.com^'
-downstreams = ["google.com:443"]
+# TCP proxy because no TLS specified
+[mapping.somewhere]
+regex = '.*somewhere'
+downstreams = ["localhost:443"]
 
+# try: curl --resolve idontknow:9337:127.0.0.1 -k https://idontknow:9337/ -v
 # an ExactMatcher rule, which must exactly match the requested SNI
-[mapping.blah-io]
-exact = "blah.io"
+# TLS proxy because TLS specified
+[mapping.idontknow]
+exact = "idontknow"
 downstreams = ["localhost:9339"]
+tls = "anon"
+
+# try: curl --resolve no:9337:127.0.0.1 -k https://no:9337/ -v
+# because of an empty client trust list
+# it will mad at lack of client certificate
+# HTTPS proxy because TLS specified and response_code offered
+[mapping.no]
+exact = "no"
+tls = "paranoid"
+response_code = 403
+response_body = "whatever"
+
+# try:  curl --resolve yes:9337:127.0.0.1 -k https://yes:9337/ -v
+# should just be 200 and no body
+# HTTPS proxy because TLS specified and response_code offered
+[mapping.yes]
+exact = "yes"
+tls = "anon"
+response_code = 200
+response_body = "whatever"
 
 # a UniversalMatcher rule, which always matches
-[mapping.final]
-downstreams = ["twitter.com:443"]
+# TCP proxy because no TLS specified
+# try: curl --resolve tlyestotls:9337:127.0.0.1 -k https://tlyestotls:9337/ -v
+
+# [mapping.final]
+# downstreams = ["localhost:443"]
+
+# disabled, it will TLS unrecognized_name instead
+
+# an anonymous TLS configuration.  Will gen a self-signed cert at startup
+[tls.anon]
+
+# an anonymous TLS configuration that has an empty client trust bundle
+# so paranoid it trusts nobody and therefore always aborts
+[tls.paranoid]
+client_certbundle_path = "/dev/null"
+
+# it means always do authproofs
+# TOdemonstrate
+# [tls.zerotrust]
+# client_certbundle_path = "/my/private/ca-root.pem"

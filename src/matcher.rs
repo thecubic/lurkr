@@ -36,13 +36,14 @@ impl Matcher {
         let mut matchers = Vec::<Matcher>::new();
         // TODO: ordering? weights? preserve order feature in config-rs?
         for (mapname, mapspec) in cfg_obj.mapping.iter() {
+            log::debug!("assembling mapping {}", mapname);
             if let Some(dispatcher) = Dispatcher::from_mappingentry_tlses(&mapspec, tlses.clone()) {
-                if mapspec.exact.is_some() && mapspec.matcher.is_some() {
+                if mapspec.exact.is_some() && mapspec.regex.is_some() {
                     panic!(
                         "mapping entry {} cannot have both exact and regex matching",
                         mapname
                     );
-                } else if mapspec.exact.is_none() && mapspec.matcher.is_none() {
+                } else if mapspec.exact.is_none() && mapspec.regex.is_none() {
                     matchers.push(Matcher::UniversalMatcher {
                         rulename: mapname.clone(),
                         dispatcher: dispatcher,
@@ -53,7 +54,7 @@ impl Matcher {
                         exact: direct.clone(),
                         dispatcher: dispatcher,
                     });
-                } else if let Some(regex) = &mapspec.matcher {
+                } else if let Some(regex) = &mapspec.regex {
                     matchers.push(Matcher::RegexMatcher {
                         rulename: mapname.clone(),
                         regex: Regex::new(regex.as_str()).expect(
@@ -66,19 +67,14 @@ impl Matcher {
                 panic!("mapping entry {} is not dispatchable", mapname);
             }
         }
-        // the no_mapping handler is just a UniversalMatcher at the end
-        matchers.push(match &cfg_obj.listener.no_mapping.as_deref() {
-            Some("ignore") => Matcher::UniversalMatcher {
-                rulename: "__default".to_string(),
-                dispatcher: Dispatcher::NothingDispatcher,
-            },
-            _ => Matcher::UniversalMatcher {
-                rulename: "__default".to_string(),
-                dispatcher: Dispatcher::TLSAlertDispatcher {
-                    alert_level: AlertLevel::Fatal,
-                    // it's a "z" in the standard #gotem
-                    alert_description: AlertDescription::UnrecognisedName,
-                },
+        // we give you one free TLS unrecognized-name
+        // dispatching UniversalMatcher at the end
+        matchers.push(Matcher::UniversalMatcher {
+            rulename: "__default".to_string(),
+            dispatcher: Dispatcher::TLSAlertDispatcher {
+                alert_level: AlertLevel::Fatal,
+                // it's a "z" in the standard #gotem
+                alert_description: AlertDescription::UnrecognisedName,
             },
         });
         matchers

@@ -1,9 +1,9 @@
 [package]
 edition = "2021"
 name = "lurkr"
-version = "0.2.0"
+version = "0.3.0"
 [dependencies]
-config = "*"
+anyhow = "*"
 env_logger = "*"
 log = "*"
 rand = "*"
@@ -17,6 +17,7 @@ tokio-rustls = "*"
 rustls-pemfile = "*"
 ring = "*"
 rcgen = "*"
+indexmap = "*"
 
 [dependencies.tokio]
 features = ["full"]
@@ -25,3 +26,8 @@ version = "*"
 [dependencies.hyper]
 features = ["full"]
 version = "*"
+
+[dependencies.config]
+features = ["preserve_order"]
+version = "*"
+

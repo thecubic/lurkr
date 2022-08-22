@@ -10,7 +10,7 @@ use tokio::{
 };
 use tokio_rustls::{server::TlsStream, TlsAcceptor};
 
-use crate::{conf::MappingEntry, matcher::Matcher};
+use crate::{conf::MappingEntry, https::https_answer_request, matcher::Matcher};
 
 impl std::fmt::Debug for Dispatcher {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -18,15 +18,7 @@ impl std::fmt::Debug for Dispatcher {
         f.debug_struct("Dispatcher").finish()
     }
 }
-use std::convert::Infallible;
 
-use hyper::{
-    server::conn::AddrStream,
-    service::{make_service_fn, service_fn},
-    Method, StatusCode,
-};
-use hyper::{Body, Request, Response, Server};
-// -Debug because TlsAcceptor
 #[derive(Clone)]
 pub enum Dispatcher {
     // represent raw TCP
@@ -40,12 +32,12 @@ pub enum Dispatcher {
         acceptor: Arc<TlsAcceptor>,
     },
 
-    // NOT IMPLEMENTED
     // sends the client one 404 or whatever
     // "help me I can't program" is the best hiding strat
+    // can't put body because String on heap and not Copy
+    // gotta fix that
     HTTPSStaticDispatcher {
-        response_code: u8,
-        response_body: String,
+        response_code: u16,
         acceptor: Arc<TlsAcceptor>,
     },
 
@@ -62,7 +54,8 @@ pub enum Dispatcher {
     },
     // effectively does nothing
     // when the socket goes out of scope, RST
-    NothingDispatcher,
+    // not even in use lmao
+    // NothingDispatcher,
 }
 
 impl Dispatcher {
@@ -73,9 +66,24 @@ impl Dispatcher {
                     .choose(&mut rand::thread_rng())
                     .expect("no downstreams in dispatcher");
                 log::debug!("connect ye to {}", chosen);
-                tcp_proxy_addr(clientsock, chosen)
-                    .await
-                    .expect("couldn't TCP-proxy")
+                match tcp_proxy_addr(clientsock, chosen).await {
+                    io::Result::Ok(_) => {
+                        log::debug!("normal termination");
+                    }
+                    io::Result::Err(err) => match err.kind() {
+                        std::io::ErrorKind::UnexpectedEof => {
+                            log::debug!("ignoring EOF");
+                        }
+                        std::io::ErrorKind::InvalidData => {
+                            log::debug!("tls abort");
+                        }
+                        _ => {
+                            log::debug!("unhandled kind");
+                            log::debug!("error termination: {:?}", err);
+                        }
+                    },
+                };
+                // .expect("couldn't TCP-proxy")
             }
             Dispatcher::TLSAlertDispatcher {
                 alert_level,
@@ -105,26 +113,47 @@ impl Dispatcher {
                     .choose(&mut rand::thread_rng())
                     .expect("no downstreams in dispatcher");
                 log::debug!("TLS-term and connect to {}", chosen);
-                tls_proxy_addr(clientsock, chosen, acceptor.clone())
-                    .await
-                    .expect("couldn't TLS-proxy");
+                match tls_proxy_addr(clientsock, chosen, acceptor.clone()).await {
+                    io::Result::Ok(_) => {
+                        log::debug!("normal termination");
+                    }
+                    io::Result::Err(err) => match err.kind() {
+                        std::io::ErrorKind::UnexpectedEof => {
+                            log::debug!("ignoring EOF");
+                        }
+                        std::io::ErrorKind::InvalidData => {
+                            log::debug!("tls abort");
+                        }
+                        _ => {
+                            log::debug!("unhandled kind");
+                            log::debug!("error termination: {:?}", err);
+                        }
+                    },
+                }
             }
             Dispatcher::HTTPSStaticDispatcher {
                 response_code,
-                response_body,
                 acceptor,
             } => {
-                log::debug!("i'm very lost right now");
-                https_answer_request(
-                    clientsock,
-                    *response_code,
-                    response_body.clone(),
-                    acceptor.clone(),
-                )
-                .await
-                .expect("couldn't HTTPS static dispatch");
+                log::debug!("to https_answer_request");
+                match https_answer_request(clientsock, *response_code, acceptor.clone()).await {
+                    io::Result::Ok(_) => {
+                        log::debug!("normal termination");
+                    }
+                    io::Result::Err(err) => match err.kind() {
+                        std::io::ErrorKind::UnexpectedEof => {
+                            log::debug!("ignoring EOF");
+                        }
+                        std::io::ErrorKind::InvalidData => {
+                            log::debug!("tls abort");
+                        }
+                        _ => {
+                            log::debug!("unhandled kind");
+                            log::debug!("error termination: {:?}", err);
+                        }
+                    },
+                };
             }
-            _ => {}
         }
     }
     // Dispatchers determine how to execute
@@ -132,20 +161,28 @@ impl Dispatcher {
         me: &MappingEntry,
         tlses: Arc<HashMap<String, Arc<TlsAcceptor>>>,
     ) -> Option<Dispatcher> {
-        if let Some(downstreams) = &me.downstreams {
-            if let Some(tlsname) = &me.tls {
-                log::debug!("TLSWrappedDownstreamDispatcher");
-                if let Some(acceptor) = tlses.get(tlsname) {
-                    log::debug!("found tls acceptor");
+        if let Some(tlsname) = &me.tls {
+            if let Some(acceptor) = tlses.get(tlsname) {
+                if let Some(downstreams) = &me.downstreams {
+                    log::debug!("TLSWrappedDownstreamDispatcher");
                     return Some(Dispatcher::TLSWrappedDownstreamDispatcher {
                         downstreams: downstreams.clone(),
                         acceptor: acceptor.clone(),
                     });
-                } else {
-                    log::debug!("not found tls acceptor");
-                    panic!("named tls config not found");
+                }
+                if let Some(response_code) = me.response_code {
+                    log::debug!("HTTPSStaticDispatcher");
+                    return Some(Dispatcher::HTTPSStaticDispatcher {
+                        response_code: response_code,
+                        acceptor: acceptor.clone(),
+                    });
                 }
             } else {
+                log::debug!("not found tls acceptor");
+                panic!("named tls config not found");
+            }
+        } else {
+            if let Some(downstreams) = &me.downstreams {
                 log::debug!("TCPDownstreamDispatcher");
                 return Some(Dispatcher::TCPDownstreamDispatcher {
                     downstreams: downstreams.clone(),
@@ -165,6 +202,8 @@ impl Dispatcher {
                     if exact.as_str() == indicated {
                         log::debug!("rule {} matched exact: {}", rulename, indicated);
                         return Some(dispatcher.clone());
+                    } else {
+                        log::debug!("rule {} no matched exact: {}", rulename, indicated);
                     }
                 }
                 Matcher::RegexMatcher {
@@ -175,6 +214,8 @@ impl Dispatcher {
                     if regex.is_match(indicated) {
                         log::debug!("rule {} regexed: {}", rulename, indicated);
                         return Some(dispatcher.clone());
+                    } else {
+                        log::debug!("rule {} no matched regex: {}", rulename, indicated);
                     }
                 }
                 Matcher::UniversalMatcher {
@@ -261,54 +302,4 @@ async fn tls_proxy_addr(
     let outgoing = TcpStream::connect(addr).await?;
     let plaintext_stream = acceptor.accept(incoming).await?;
     tls_proxy_stream(plaintext_stream, outgoing).await
-}
-
-async fn https_answer_request(
-    incoming: TcpStream,
-    response_code: u8,
-    response_body: String,
-    acceptor: Arc<TlsAcceptor>,
-) -> Result<(), ()> {
-    // let make_svc = make_service_fn(|_conn| async { Ok::<_, Infallible>(service_fn(hello)) });
-    let make_svc = make_service_fn(|_conn: &env_logger::Target| {
-        // let remote_addr = socket.remote_addr();
-        async move {
-            Ok::<_, Infallible>(service_fn(move |_: Request<Body>| async move {
-                Ok::<_, Infallible>(Response::new(Body::from("Hi")))
-            }))
-        }
-    });
-
-    // let service = make_service_fn(|_conn: &env_logger::Target| async {
-    // Ok::<_, io::Error>(service_fn(resultify))
-    // });
-    Ok(())
-}
-
-// let server = Server::builder(TlsAcceptor::new(tls_cfg, incoming)).serve(service);
-
-async fn resultify(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
-    let mut response = Response::new(Body::empty());
-    *response.status_mut() = StatusCode::OK;
-    *response.body_mut() = Body::from("byezers\n");
-    Ok(response)
-}
-
-async fn echo(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
-    let mut response = Response::new(Body::empty());
-    match (req.method(), req.uri().path()) {
-        // Help route.
-        (&Method::GET, "/") => {
-            *response.body_mut() = Body::from("Try POST /echo\n");
-        }
-        // Echo service route.
-        (&Method::POST, "/echo") => {
-            *response.body_mut() = req.into_body();
-        }
-        // Catch-all 404.
-        _ => {
-            *response.status_mut() = StatusCode::NOT_FOUND;
-        }
-    };
-    Ok(response)
 }

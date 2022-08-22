@@ -6,10 +6,15 @@ use std::{
 };
 
 use ring::{rand, signature};
-use rustls::internal::msgs::{
-    base::PayloadU16,
-    handshake::{HandshakePayload, ServerNamePayload},
-    message::MessagePayload,
+use rustls::{
+    internal::msgs::{
+        base::PayloadU16,
+        handshake::{HandshakePayload, ServerNamePayload},
+        message::MessagePayload,
+    },
+    server::{AllowAnyAnonymousOrAuthenticatedClient, AllowAnyAuthenticatedClient},
+    sign::any_supported_type,
+    RootCertStore,
 };
 use rustls::{Certificate, PrivateKey};
 use rustls_pemfile::{read_one, Item};
@@ -21,7 +26,9 @@ use rcgen::{
     KeyPair as RcKeyPair,
 };
 
-use crate::conf::Configuration;
+use anyhow::Result;
+
+use crate::conf::{Configuration, TlsConfigEntry};
 
 // generate an ECDSA keypair for the not-provided case
 pub fn make_keypair() -> PrivateKey {
@@ -69,73 +76,50 @@ pub fn acceptors_from_configuration(
     // if-present, iterate over config-present tls specification sections
     if let Some(tlscfgs) = &cfg_obj.tls {
         for (tlsname, tlsspec) in tlscfgs.iter() {
-            // identify key
-            let mcfgkey = if let Some(key) = &tlsspec.key {
-                // load key from literal
-                log::debug!("loading key from literal");
-                Some(PrivateKey(key.as_bytes().to_vec()))
-            } else if let Some(key_path) = &tlsspec.key_path {
-                // load key from file
-                log::debug!("loading key from file");
-                if let Some(key) = get_private_key(&mut BufReader::new(File::open(key_path)?))? {
-                    Some(PrivateKey(key))
-                } else {
-                    None
-                }
-            } else {
-                log::debug!("generating key");
-                Some(make_keypair())
-            };
+            log::debug!("building tlsspec {}", tlsname);
 
-            if let None = mcfgkey {
-                panic!("missing workable entry for tls config (missing key)");
+            // identity key
+            let identity_key =
+                load_key_from_tlsspec(&tlsspec).expect("missing private key configuration");
+
+            // Server's certificate
+            let is_selfsigned = tlsspec.certs.is_none() && tlsspec.certs_path.is_none();
+            let identity_certs = if is_selfsigned {
+                log::debug!("no file or literal: self-signed cert");
+                Ok(make_selfsigned_cert(&identity_key))
+            } else {
+                server_certificates(&tlsspec)
+            }?;
+            if identity_certs.is_empty() {
+                panic!("missing workable entry for tls config (missing certs)");
             }
 
-            // identify certificates
-            let mcfgcerts: Option<Vec<Certificate>> = if let Some(_) = &tlsspec.certs {
-                log::debug!("NI: loading certs from literal");
-                // Some(Vec::<Certificate>::new())
-                // Some(
-                //     // rustls_pemfile::certs(&mut Cursor::new(certs)).into_iter().map(Certificate).collect()
-                //     certs.into_iter().map(Certificate).collect()
-                // )
+            // to make sure it explodes if unsupported
+            let _signing_key = any_supported_type(&identity_key).expect("unsupported key");
+            // let _ckey = CertifiedKey::new(identity_certs.clone(), signing_key.clone());
 
-                None
-            } else if let Some(certs_path) = &tlsspec.certs_path {
-                // load certs from file
-                log::debug!("loading certs from file");
-                let certs = rustls_pemfile::certs(&mut BufReader::new(File::open(certs_path)?))?
-                    .into_iter()
-                    .map(Certificate)
-                    .collect();
-                Some(certs)
-            } else {
-                log::debug!("self-signed cert");
-                match &mcfgkey {
-                    Some(privkey) => Some(vec![Certificate(
-                        self_signed_cert(privkey).serialize_der().unwrap(),
-                    )]),
-                    None => None,
+            // Client auth certificates
+            let is_clientrequested =
+                tlsspec.client_certbundle.is_some() || tlsspec.client_certbundle_path.is_some();
+            let ccfgcerts = client_certificates(&tlsspec)?;
+            let cverifier = if is_clientrequested {
+                let mut roots = RootCertStore::empty();
+                for cert in ccfgcerts.iter() {
+                    roots.add(cert).ok();
                 }
+                // only allow proven connections
+                AllowAnyAuthenticatedClient::new(roots)
+            } else {
+                // allow proven or unproven connections
+                AllowAnyAnonymousOrAuthenticatedClient::new(RootCertStore::empty())
             };
-
-            if let Some(certs) = &mcfgcerts {
-                if certs.is_empty() {
-                    panic!("missing workable entry for tls config (missing certs)");
-                }
-            } else {
-                panic!("missing workable entry for tls config (couldn't read)");
-            }
 
             let tls_config = rustls::ServerConfig::builder()
                 .with_safe_defaults()
-                .with_no_client_auth()
-                .with_single_cert(
-                    mcfgcerts.expect("missing certs"),
-                    mcfgkey.expect("missing key"),
-                )
+                .with_client_cert_verifier(cverifier)
+                .with_single_cert(identity_certs, identity_key)
                 .expect("couldn't initialize TLS config");
-            // TODO: client auth and such
+
             tlses.insert(
                 tlsname.clone(),
                 Arc::new(TlsAcceptor::from(Arc::new(tls_config))),
@@ -145,9 +129,77 @@ pub fn acceptors_from_configuration(
     Ok(tlses)
 }
 
+pub fn load_key_from_tlsspec(tlsspec: &TlsConfigEntry) -> Option<PrivateKey> {
+    if let Some(key) = &tlsspec.key {
+        log::debug!("loading key from literal");
+        match rustls_pemfile::pkcs8_private_keys(&mut key.as_bytes()) {
+            Err(_) => None,
+            Ok(keyvecvec) => match keyvecvec.first() {
+                None => None,
+                Some(keyblob) => Some(PrivateKey(keyblob.clone())),
+            },
+        }
+    } else if let Some(key_path) = &tlsspec.key_path {
+        log::debug!("loading key from file");
+        match get_private_key(&mut BufReader::new(
+            File::open(key_path).expect("couldn't open key_path file"),
+        )) {
+            Err(_) => None,
+            Ok(None) => None,
+            Ok(Some(keyblob)) => Some(PrivateKey(keyblob.clone())),
+        }
+    } else {
+        log::debug!("generating key");
+        Some(make_keypair())
+    }
+}
+
+pub fn server_certificates(tlsspec: &TlsConfigEntry) -> Result<Vec<Certificate>, Error> {
+    if let Some(certliteral) = &tlsspec.certs {
+        log::debug!("NI: loading certs from literal");
+        Ok(rustls_pemfile::certs(&mut certliteral.as_bytes())?
+            .into_iter()
+            .map(Certificate)
+            .collect())
+    } else if let Some(certs_path) = &tlsspec.certs_path {
+        // load certs from file
+        log::debug!("loading certs from file");
+        Ok(
+            rustls_pemfile::certs(&mut BufReader::new(File::open(certs_path)?))?
+                .into_iter()
+                .map(Certificate)
+                .collect(),
+        )
+    } else {
+        Ok(vec![])
+    }
+}
+pub fn make_selfsigned_cert(mykey: &PrivateKey) -> Vec<Certificate> {
+    vec![Certificate(
+        self_signed_cert(&mykey).serialize_der().unwrap(),
+    )]
+}
+
+pub fn client_certificates(tlsspec: &TlsConfigEntry) -> Result<Vec<Certificate>, Error> {
+    if let Some(_) = &tlsspec.client_certbundle {
+        // literal
+        Ok(vec![])
+    } else if let Some(certbundle_path) = &tlsspec.client_certbundle_path {
+        log::debug!("loading certbundle from file");
+        let certs = rustls_pemfile::certs(&mut BufReader::new(File::open(certbundle_path)?))?
+            .into_iter()
+            .map(Certificate)
+            .collect();
+        Ok(certs)
+    } else {
+        log::debug!("no client file or literal: okay");
+        Ok(vec![])
+    }
+}
+
 pub async fn extract_sni(payload: &MessagePayload) -> Option<(PayloadU16, DnsName)> {
-    if let MessagePayload::Handshake(shake) = payload {
-        if let HandshakePayload::ClientHello(ohhai) = &shake.payload {
+    if let MessagePayload::Handshake { parsed, .. } = payload {
+        if let HandshakePayload::ClientHello(ohhai) = &parsed.payload {
             let sni = ohhai.get_sni_extension();
             if sni.is_none() {
                 // No SNI extension

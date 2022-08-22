@@ -57,12 +57,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .try_deserialize()
         .expect("could not deserialize configuration");
 
-    let _no_mapping = if let Some(chose_no_mapping) = &fullcfg.listener.no_mapping {
-        chose_no_mapping.clone()
-    } else {
-        "unrecognized_name".to_string()
-    };
-
     let tlsmap = Arc::new(tls::acceptors_from_configuration(&fullcfg)?);
     let matchlist: Arc<Vec<Matcher>> =
         Arc::new(Matcher::from_configuration_tlses(&fullcfg, tlsmap));

@@ -16,3 +16,5 @@ Cargo.lock
 
 # conveniently-ignored folder for testing
 /testing/
+
+/.vscode/
