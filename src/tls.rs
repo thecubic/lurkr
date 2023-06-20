@@ -31,7 +31,7 @@ use anyhow::Result;
 use crate::conf::{Configuration, TlsConfigEntry};
 
 // generate an ECDSA keypair for the not-provided case
-pub fn make_keypair() -> PrivateKey {
+pub fn make_ecdsa_keypair() -> PrivateKey {
     PrivateKey(
         signature::EcdsaKeyPair::generate_pkcs8(
             &signature::ECDSA_P256_SHA256_ASN1_SIGNING,
@@ -96,7 +96,6 @@ pub fn acceptors_from_configuration(
 
             // to make sure it explodes if unsupported
             let _signing_key = any_supported_type(&identity_key).expect("unsupported key");
-            // let _ckey = CertifiedKey::new(identity_certs.clone(), signing_key.clone());
 
             // Client auth certificates
             let is_clientrequested =
@@ -150,7 +149,7 @@ pub fn load_key_from_tlsspec(tlsspec: &TlsConfigEntry) -> Option<PrivateKey> {
         }
     } else {
         log::debug!("generating key");
-        Some(make_keypair())
+        Some(make_ecdsa_keypair())
     }
 }
 
@@ -181,11 +180,21 @@ pub fn make_selfsigned_cert(mykey: &PrivateKey) -> Vec<Certificate> {
 }
 
 pub fn client_certificates(tlsspec: &TlsConfigEntry) -> Result<Vec<Certificate>, Error> {
-    if let Some(_) = &tlsspec.client_certbundle {
-        // literal
-        Ok(vec![])
+    if let Some(inlinebundle) = &tlsspec.client_certbundle {
+        log::debug!("loading client cert trust bundle from literal");
+        let certs = rustls_pemfile::certs(
+            &mut BufReader::new(inlinebundle.as_bytes())
+            )?
+            .into_iter()
+            .map(Certificate)
+            .collect();
+        Ok(certs)
     } else if let Some(certbundle_path) = &tlsspec.client_certbundle_path {
-        log::debug!("loading certbundle from file");
+        if certbundle_path.is_empty() {
+            log::debug!("emptypath skip");
+            return Ok(vec![]);
+        }
+        log::debug!("loading client cert trust bundle from file");
         let certs = rustls_pemfile::certs(&mut BufReader::new(File::open(certbundle_path)?))?
             .into_iter()
             .map(Certificate)

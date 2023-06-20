@@ -40,9 +40,20 @@ tls = "anon"
 response_code = 200
 response_body = "whatever"
 
+[mapping.noclientcert]
+exact = "noclientcert"
+tls = "paranoid"
+response_code = 200
+response_body = "client certs"
+
 # a UniversalMatcher rule, which always matches
 # TCP proxy because no TLS specified
 # try: curl --resolve tlyestotls:9337:127.0.0.1 -k https://tlyestotls:9337/ -v
+[mapping.any]
+regex = ".+"
+tls = "anon"
+response_code = 400
+response_body = "i'm not answering any questions"
 
 # [mapping.final]
 # downstreams = ["localhost:443"]
@@ -55,7 +66,10 @@ response_body = "whatever"
 # an anonymous TLS configuration that has an empty client trust bundle
 # so paranoid it trusts nobody and therefore always aborts
 [tls.paranoid]
-client_certbundle_path = "/dev/null"
+client_certbundle_path = ""
+
+[tls.paranoid_literal]
+client_certbundle = ""
 
 # it means always do authproofs
 # TOdemonstrate
