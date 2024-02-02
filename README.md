@@ -19,3 +19,7 @@ It will proxy to the selected downstream, and you should expect a server respons
 
 You can test specific hostnames with curl easily
 `curl --resolve tlyestotls:9337:127.0.0.1 -k https://tlyestotls:9337/ -v`
+
+## self-serving product review
+
+I've used this in prod for about two years as part of literal life support and have not had to give one shit about it. It also serves high-bandwidth video streams
