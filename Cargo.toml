@@ -2,21 +2,22 @@
 edition = "2021"
 name = "lurkr"
 version = "0.3.0"
+
 [dependencies]
 anyhow = "*"
 env_logger = "*"
 log = "*"
 rand = "*"
 regex = "*"
-rustls = "*"
+rustls = "0.20.4"
 serde = "*"
 serde_derive = "*"
 structopt = "*"
-webpki = "*"
-tokio-rustls = "*"
-rustls-pemfile = "*"
-ring = "*"
-rcgen = "*"
+webpki = "0.22.0"
+tokio-rustls = "0.23.3"
+rustls-pemfile = "1.0.0"
+ring = "0.16.20"
+rcgen = "0.12.1"
 indexmap = "*"
 
 [dependencies.tokio]
@@ -25,7 +26,7 @@ version = "*"
 
 [dependencies.hyper]
 features = ["full"]
-version = "*"
+version = "0.14.28"
 
 [dependencies.config]
 features = ["preserve_order"]
