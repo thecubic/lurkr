@@ -12,7 +12,7 @@ use tokio::net::TcpStream;
 use crate::matcher::Matcher;
 
 pub async fn handle_connection(socket: TcpStream, mymatchlist: Arc<Vec<Matcher>>) {
-    let mut peekbuf = [0; 1024];
+    let mut peekbuf = [0; 10240];
     // "peek" into the socket to retrieve TLS
     // ClientHello and SNI
     let rsz = socket
@@ -23,6 +23,8 @@ pub async fn handle_connection(socket: TcpStream, mymatchlist: Arc<Vec<Matcher>>
     if rsz == 0 {
         return;
     }
+
+    // TODO: refactor so it peeks a few times
 
     if peekbuf
         .windows(4)
