@@ -1,3 +1,5 @@
+LABEL org.opencontainers.image.source=https://github.com/thecubic/lurkr
+
 FROM rust:latest as builder
 
 WORKDIR /usr/src/lurkr

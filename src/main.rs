@@ -47,8 +47,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .add_source(config::File::with_name(
             cli_opt.conf.to_str().expect("invalid pathname"),
         ))
-        // Add in settings from the environment (with a prefix of APP)
-        // Eg.. `APP_DEBUG=1 ./target/app` would set the `debug` key
         .add_source(config::Environment::with_prefix("LURKR"))
         .build()
         .unwrap();

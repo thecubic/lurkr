@@ -12,7 +12,7 @@ use rustls::{
         handshake::{HandshakePayload, ServerNamePayload},
         message::MessagePayload,
     },
-    server::{AllowAnyAnonymousOrAuthenticatedClient, AllowAnyAuthenticatedClient},
+    server::{AllowAnyAnonymousOrAuthenticatedClient, AllowAnyAuthenticatedClient, NoClientAuth},
     sign::any_supported_type,
     RootCertStore,
 };
@@ -60,6 +60,7 @@ pub fn get_private_key(rd: &mut dyn BufRead) -> Result<Option<Vec<u8>>, Error> {
             None => return Ok(None),
             // old shitty format bound to a particular key style
             // stop using these, I beg you
+            // looking at you, CloudFlare
             Some(Item::RSAKey(key)) => return Ok(Some(key)),
             Some(Item::ECKey(key)) => return Ok(Some(key)),
             // new format
@@ -106,11 +107,16 @@ pub fn acceptors_from_configuration(
                 for cert in ccfgcerts.iter() {
                     roots.add(cert).ok();
                 }
-                // only allow proven connections
-                AllowAnyAuthenticatedClient::new(roots)
+                if tlsspec.require_client_auth == Some(true) {
+                    // only allow proven connections
+                    AllowAnyAuthenticatedClient::new(roots)
+                } else {
+                    // ask, but allow proven or unproven connections
+                    AllowAnyAnonymousOrAuthenticatedClient::new(RootCertStore::empty())
+                }
             } else {
-                // allow proven or unproven connections
-                AllowAnyAnonymousOrAuthenticatedClient::new(RootCertStore::empty())
+                // do not ask
+                NoClientAuth::new()
             };
 
             let tls_config = rustls::ServerConfig::builder()
@@ -182,9 +188,7 @@ pub fn make_selfsigned_cert(mykey: &PrivateKey) -> Vec<Certificate> {
 pub fn client_certificates(tlsspec: &TlsConfigEntry) -> Result<Vec<Certificate>, Error> {
     if let Some(inlinebundle) = &tlsspec.client_certbundle {
         log::debug!("loading client cert trust bundle from literal");
-        let certs = rustls_pemfile::certs(
-            &mut BufReader::new(inlinebundle.as_bytes())
-            )?
+        let certs = rustls_pemfile::certs(&mut BufReader::new(inlinebundle.as_bytes()))?
             .into_iter()
             .map(Certificate)
             .collect();

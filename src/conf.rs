@@ -25,6 +25,7 @@ pub struct TlsConfigEntry {
     pub certs: Option<String>,
     pub certs_path: Option<String>,
     // Client (authproof) side
+    pub require_client_auth: Option<bool>,
     pub client_certbundle: Option<String>,
     pub client_certbundle_path: Option<String>,
 }
