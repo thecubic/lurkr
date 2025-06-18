@@ -1,4 +1,4 @@
-use rand::prelude::SliceRandom;
+use rand::seq::IndexedRandom;
 use rustls::internal::msgs::{
     enums::{AlertDescription, AlertLevel},
     message::{Message, PlainMessage},
@@ -63,7 +63,7 @@ impl Dispatcher {
         match self {
             Dispatcher::TCPDownstreamDispatcher { downstreams } => {
                 let chosen = downstreams
-                    .choose(&mut rand::thread_rng())
+                    .choose(&mut rand::rng())
                     .expect("no downstreams in dispatcher");
                 log::debug!("connect ye to {}", chosen);
                 match tcp_proxy_addr(clientsock, chosen).await {
@@ -110,7 +110,7 @@ impl Dispatcher {
                 acceptor,
             } => {
                 let chosen = downstreams
-                    .choose(&mut rand::thread_rng())
+                    .choose(&mut rand::rng())
                     .expect("no downstreams in dispatcher");
                 log::debug!("TLS-term and connect to {}", chosen);
                 match tls_proxy_addr(clientsock, chosen, acceptor.clone()).await {

@@ -7,7 +7,7 @@ version = "0.3.0"
 anyhow = "*"
 env_logger = "*"
 log = "*"
-rand = "*"
+rand = {version = "0.9.1", features = ['thread_rng']}
 regex = "*"
 rustls = "0.20.4"
 serde = "*"

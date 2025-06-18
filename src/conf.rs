@@ -51,5 +51,7 @@ pub struct MappingEntry {
 
     // HTTPS response
     pub response_code: Option<u16>,
+
+    #[allow(dead_code)]
     pub response_body: Option<String>,
 }
