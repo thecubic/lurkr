@@ -1,6 +1,7 @@
-LABEL org.opencontainers.image.source=https://github.com/thecubic/lurkr
-
 FROM rust:latest as builder
+
+LABEL org.opencontainers.image.source=https://github.com/thecubic/lurkr
+LABEL org.opencontainers.image.authors="thecubic@thecubic.net"
 
 WORKDIR /usr/src/lurkr
 COPY . .
