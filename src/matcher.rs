@@ -1,7 +1,8 @@
 use std::{collections::HashMap, sync::Arc};
 
 use regex::Regex;
-use rustls::internal::msgs::enums::{AlertDescription, AlertLevel};
+use rustls::internal::msgs::enums::AlertLevel;
+use rustls::AlertDescription;
 use tokio_rustls::TlsAcceptor;
 
 use crate::{conf::Configuration, dispatcher::Dispatcher};

@@ -1,18 +1,16 @@
 use std::sync::Arc;
 
 use crate::dispatcher::Dispatcher;
-use crate::tls;
 
-use rustls::internal::msgs::{
-    codec::Reader,
-    message::{Message, OpaqueMessage},
-};
+use rustls::server::Acceptor;
 use tokio::net::TcpStream;
 
 use crate::matcher::Matcher;
 
+const PEEK_SIZE: usize = 10240;
+
 pub async fn handle_connection(socket: TcpStream, mymatchlist: Arc<Vec<Matcher>>) {
-    let mut peekbuf = [0; 10240];
+    let mut peekbuf = [0; PEEK_SIZE];
     // "peek" into the socket to retrieve TLS
     // ClientHello and SNI
     let rsz = socket
@@ -24,8 +22,7 @@ pub async fn handle_connection(socket: TcpStream, mymatchlist: Arc<Vec<Matcher>>
         return;
     }
 
-    // TODO: refactor so it peeks a few times
-
+    // handle the confused-case where they plaintext HTTP'ed at us
     if peekbuf
         .windows(4)
         .any(move |subslice| subslice == "HTTP".as_bytes())
@@ -34,43 +31,43 @@ pub async fn handle_connection(socket: TcpStream, mymatchlist: Arc<Vec<Matcher>>
         return;
     }
 
-    // Deserialize the TLS ClientHello
-    let omsg = OpaqueMessage::read(&mut Reader::init(&peekbuf))
-        .expect("couldn't read TLS message")
-        .into_plain_message();
-
-    let msg = match Message::try_from(omsg) {
-        Ok(message) => message,
-        Err(e) => {
-            log::error!("indecipherable TLS message; abandoning connection [{e}]");
+    let mut tls_ponder = Acceptor::default();
+    tls_ponder
+        .read_tls(&mut &peekbuf[..])
+        .expect("couldn't read data from connection");
+    match tls_ponder.accept() {
+        Ok(None) => {
+            // TODO: refactor so it peeks a few times
+            log::debug!("haven't consumed a ClientHello");
             return;
         }
-    };
-
-    // }        let msg = Message::try_from(omsg).expect("Couldn't decipher message");
-
-    // Extract the SNI payload and determine indicated name
-    let session_sni = tls::extract_sni(&msg.payload).await;
-
-    // Core rule-matching; find an appropriate matcher
-    // or do the no-mapping procedure
-    if let Some(hn) = session_sni {
-        let indicated: &str = std::str::from_utf8(&hn.0 .0).unwrap();
-        log::debug!("indicated: {:?}", indicated);
-        if let Some(dispatcher) = Dispatcher::from_matching(indicated, mymatchlist) {
-            dispatcher.do_dispatch(socket).await
-        } else {
-            // should be unreachable
-            panic!("no dispatcher for indicated");
+        Ok(Some(accepted)) => {
+            let ch = accepted.client_hello();
+            match ch.server_name() {
+                None => {
+                    // Didn't get SNI, send to first universal match
+                    log::debug!("no name indicated");
+                    if let Some(dispatcher) = Dispatcher::from_matching("", mymatchlist) {
+                        dispatcher.do_dispatch(socket).await
+                    } else {
+                        log::warn!("no dispatcher for zero-string: elvis left the building");
+                        panic!("zero-string dispatcher missing");
+                    }
+                }
+                Some(sn) => {
+                    log::debug!("indicated: {:?}", sn);
+                    if let Some(dispatcher) = Dispatcher::from_matching(sn, mymatchlist) {
+                        dispatcher.do_dispatch(socket).await
+                    } else {
+                        // should be unreachable
+                        panic!("no dispatcher for indicated");
+                    }
+                }
+            }
         }
-    } else {
-        // Didn't get SNI, send to first universal match
-        log::debug!("no name indicated");
-        if let Some(dispatcher) = Dispatcher::from_matching("", mymatchlist) {
-            dispatcher.do_dispatch(socket).await
-        } else {
-            log::warn!("no dispatcher for zero-string: elvis left the building");
-            panic!("zero-string dispatcher missing");
+        Err((e, alert)) => {
+            log::debug!("err: {:?} alert: {:?}", e, alert);
+            return;
         }
     }
 }

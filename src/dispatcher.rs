@@ -1,6 +1,7 @@
 use rand::seq::IndexedRandom;
+use rustls::AlertDescription;
 use rustls::internal::msgs::{
-    enums::{AlertDescription, AlertLevel},
+    enums::AlertLevel,
     message::{Message, PlainMessage},
 };
 use std::{collections::HashMap, fmt::Formatter, sync::Arc};
@@ -8,9 +9,10 @@ use tokio::{
     io::{self, AsyncWriteExt},
     net::TcpStream,
 };
-use tokio_rustls::{server::TlsStream, TlsAcceptor};
+use tokio_rustls::{TlsAcceptor, server::TlsStream};
 
-use crate::{conf::MappingEntry, https::https_answer_request, matcher::Matcher};
+use crate::https::WebService;
+use crate::{conf::MappingEntry, matcher::Matcher};
 
 impl std::fmt::Debug for Dispatcher {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -33,15 +35,14 @@ pub enum Dispatcher {
     },
 
     // sends the client one 404 or whatever
-    // "help me I can't program" is the best hiding strat
-    // can't put body because String on heap and not Copy
-    // gotta fix that
     HTTPSStaticDispatcher {
-        response_code: u16,
+        webservice: WebService,
         acceptor: Arc<TlsAcceptor>,
     },
 
     // NOT IMPLEMENTED
+    // should be HTTP 308 with Location: <place>
+    // content-length 0
     // HTTPSRedirectDispatcher {
     //     //
     // },
@@ -132,11 +133,14 @@ impl Dispatcher {
                 }
             }
             Dispatcher::HTTPSStaticDispatcher {
-                response_code,
+                webservice,
                 acceptor,
             } => {
-                log::debug!("to https_answer_request");
-                match https_answer_request(clientsock, *response_code, acceptor.clone()).await {
+                log::debug!("to https_serve_conn");
+                match webservice
+                    .https_serve_conn(clientsock, acceptor.clone())
+                    .await
+                {
                     io::Result::Ok(_) => {
                         log::debug!("normal termination");
                     }
@@ -172,10 +176,12 @@ impl Dispatcher {
                 }
                 if let Some(response_code) = me.response_code {
                     log::debug!("HTTPSStaticDispatcher");
-                    return Some(Dispatcher::HTTPSStaticDispatcher {
-                        response_code: response_code,
-                        acceptor: acceptor.clone(),
-                    });
+                    if let Some(response_body) = &me.response_body {
+                        return Some(Dispatcher::HTTPSStaticDispatcher {
+                            webservice: WebService::new(response_code, response_body.clone()),
+                            acceptor: acceptor.clone(),
+                        });
+                    }
                 }
             } else {
                 log::debug!("not found tls acceptor");

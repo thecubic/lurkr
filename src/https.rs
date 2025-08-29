@@ -1,53 +1,72 @@
-use std::{convert::Infallible, sync::Arc};
+use std::sync::Arc;
 
-use hyper::{service::service_fn, Body, Request, Response, StatusCode};
+use http_body_util::Full;
+use hyper::{
+    Request, Response, StatusCode,
+    body::{Bytes, Incoming},
+    server::conn::http1,
+    service::Service,
+};
+use hyper_util::rt::TokioIo;
+use std::pin::Pin;
 use tokio::{io, net::TcpStream};
 use tokio_rustls::TlsAcceptor;
 
-pub async fn https_answer_request(
-    incoming: TcpStream,
+#[derive(Debug, Clone)]
+pub struct WebService {
     response_code: u16,
-    acceptor: Arc<TlsAcceptor>,
-) -> io::Result<()> {
-    let nonstatic_svc = service_fn(|_: Request<Body>| async move {
-        Ok::<_, Infallible>(
-            Response::builder()
-                .status(StatusCode::from_u16(response_code).expect("invalid HTTP response code"))
-                .body(Body::default())
-                .expect("couldn't craft HTTP response object"),
-        )
-    });
+    response_body: Full<Bytes>,
+}
 
-    // do the thing
-
-    let result = hyper::server::conn::Http::new()
-        .serve_connection(acceptor.accept(incoming).await?, nonstatic_svc)
-        .await;
-    if result.is_ok() {
-        return Ok(());
+impl WebService {
+    pub fn new(response_code: u16, response_body: String) -> Self {
+        Self {
+            response_code: response_code,
+            response_body: Full::new(Bytes::from(response_body)),
+        }
     }
-    // pretty much ignore all errors
-    // because happens:
+    pub async fn https_serve_conn(
+        &self,
+        incoming: TcpStream,
+        acceptor: Arc<TlsAcceptor>,
+    ) -> io::Result<()> {
+        let result = http1::Builder::new()
+            .serve_connection(TokioIo::new(acceptor.accept(incoming).await?), self)
+            .await;
+        if result.is_ok() {
+            return Ok(());
+        }
 
-    // hyper::Error(Shutdown, Os {
-    // code: 107,
-    // kind: NotConnected,
-    // message: "Transport endpoint is not connected" }
-
-    if let Err(err) = result {
-        if err.is_closed() {
-            log::debug!("meh closed");
+        if let Err(err) = result {
+            if err.is_closed() {
+                log::debug!("meh closed");
+            }
+            if err.is_body_write_aborted() {
+                log::debug!("meh body write aborted");
+            }
+            if err.is_canceled() {
+                log::debug!("meh cancelled");
+            }
+            if err.is_user() {
+                log::debug!("meh some user cause");
+            }
+            log::debug!("message: {:?}", err);
         }
-        if err.is_body_write_aborted() {
-            log::debug!("meh body write aborted");
-        }
-        if err.is_canceled() {
-            log::debug!("meh cancelled");
-        }
-        if err.is_user() {
-            log::debug!("meh some user cause");
-        }
-        log::debug!("message: {}", err.message());
+        Ok(())
     }
-    Ok(())
+}
+
+impl Service<Request<Incoming>> for WebService {
+    type Response = Response<Full<Bytes>>;
+    type Error = hyper::http::Error;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+
+    fn call(&self, _req: Request<Incoming>) -> Self::Future {
+        let res = Response::builder()
+            .status(StatusCode::from_u16(self.response_code).unwrap())
+            .body(self.response_body.clone())
+            .unwrap();
+
+        Box::pin(async { Ok(res) })
+    }
 }
