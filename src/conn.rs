@@ -38,7 +38,16 @@ pub async fn handle_connection(socket: TcpStream, mymatchlist: Arc<Vec<Matcher>>
     let omsg = OpaqueMessage::read(&mut Reader::init(&peekbuf))
         .expect("couldn't read TLS message")
         .into_plain_message();
-    let msg = Message::try_from(omsg).expect("Couldn't decipher message");
+
+    let msg = match Message::try_from(omsg) {
+        Ok(message) => message,
+        Err(e) => {
+            log::error!("indecipherable TLS message; abandoning connection [{e}]");
+            return;
+        }
+    };
+
+    // }        let msg = Message::try_from(omsg).expect("Couldn't decipher message");
 
     // Extract the SNI payload and determine indicated name
     let session_sni = tls::extract_sni(&msg.payload).await;
