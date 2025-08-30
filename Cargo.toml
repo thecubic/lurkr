@@ -1,7 +1,11 @@
 [package]
 edition = "2024"
 name = "lurkr"
-version = "0.4.0"
+version = "0.4.1"
+
+[[bin]]
+name = "lurkr"
+path = "./src/bin/main.rs"
 
 [dependencies]
 hyper-util = { version = "0.1.16", features = ["tokio"] }
