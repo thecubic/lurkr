@@ -1,5 +1,5 @@
 use indexmap::IndexMap;
-use serde::Deserialize;
+use serde_derive::Deserialize;
 use std::collections::HashMap;
 
 #[derive(Debug, Deserialize)]
