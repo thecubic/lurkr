@@ -11,6 +11,7 @@ RUN cargo install --path .
 # can't use alpine lol
 FROM rust:latest AS runner
 COPY --from=builder /usr/local/cargo/bin/lurkr /usr/local/bin/lurkr
+COPY --from=builder /usr/src/lurkr/README.sample.toml /lurkr.toml
 
 # this means one must mount the config as /lurkr.toml
 

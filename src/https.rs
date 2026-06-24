@@ -39,18 +39,18 @@ impl WebService {
 
         if let Err(err) = result {
             if err.is_closed() {
-                log::debug!("meh closed");
+                tracing::debug!("meh closed");
             }
             if err.is_body_write_aborted() {
-                log::debug!("meh body write aborted");
+                tracing::debug!("meh body write aborted");
             }
             if err.is_canceled() {
-                log::debug!("meh cancelled");
+                tracing::debug!("meh cancelled");
             }
             if err.is_user() {
-                log::debug!("meh some user cause");
+                tracing::debug!("meh some user cause");
             }
-            log::debug!("message: {:?}", err);
+            tracing::debug!("message: {:?}", err);
         }
         Ok(())
     }

@@ -4,12 +4,12 @@ use rustls::internal::msgs::{
     enums::AlertLevel,
     message::{Message, PlainMessage},
 };
-use std::{collections::HashMap, fmt::Formatter, sync::Arc};
+use std::{fmt::Formatter, sync::Arc};
 use tokio::{
     io::{self, AsyncWriteExt},
     net::TcpStream,
 };
-use tokio_rustls::{TlsAcceptor, server::TlsStream};
+use tokio_rustls::TlsAcceptor;
 
 use crate::https::WebService;
 use crate::{conf::MappingEntry, matcher::Matcher};
@@ -66,21 +66,21 @@ impl Dispatcher {
                 let chosen = downstreams
                     .choose(&mut rand::rng())
                     .expect("no downstreams in dispatcher");
-                log::debug!("connect ye to {}", chosen);
-                match tcp_proxy_addr(clientsock, chosen).await {
+                tracing::debug!("connect ye to {}", chosen);
+                match crate::proxy::tcp_proxy_addr(clientsock, chosen).await {
                     io::Result::Ok(_) => {
-                        log::debug!("normal termination");
+                        tracing::debug!("normal termination");
                     }
                     io::Result::Err(err) => match err.kind() {
                         std::io::ErrorKind::UnexpectedEof => {
-                            log::debug!("ignoring EOF");
+                            tracing::debug!("ignoring EOF");
                         }
                         std::io::ErrorKind::InvalidData => {
-                            log::debug!("tls abort");
+                            tracing::debug!("tls abort");
                         }
                         _ => {
-                            log::debug!("unhandled kind");
-                            log::debug!("error termination: {:?}", err);
+                            tracing::debug!("unhandled kind");
+                            tracing::debug!("error termination: {:?}", err);
                         }
                     },
                 };
@@ -90,7 +90,8 @@ impl Dispatcher {
                 alert_level,
                 alert_description,
             } => {
-                log::debug!("sending TLS alert & closing stream");
+                tracing::debug!("sending TLS alert & closing stream");
+                // TODO: has to be a better modern way to alert
                 clientsock
                     .write(
                         &PlainMessage::try_from(Message::build_alert(
@@ -113,21 +114,21 @@ impl Dispatcher {
                 let chosen = downstreams
                     .choose(&mut rand::rng())
                     .expect("no downstreams in dispatcher");
-                log::debug!("TLS-term and connect to {}", chosen);
-                match tls_proxy_addr(clientsock, chosen, acceptor.clone()).await {
+                tracing::debug!("TLS-term and connect to {}", chosen);
+                match crate::proxy::tls_proxy_addr(clientsock, chosen, acceptor.clone()).await {
                     io::Result::Ok(_) => {
-                        log::debug!("normal termination");
+                        tracing::debug!("normal termination");
                     }
                     io::Result::Err(err) => match err.kind() {
                         std::io::ErrorKind::UnexpectedEof => {
-                            log::debug!("ignoring EOF");
+                            tracing::debug!("ignoring EOF");
                         }
                         std::io::ErrorKind::InvalidData => {
-                            log::debug!("tls abort");
+                            tracing::debug!("tls abort");
                         }
                         _ => {
-                            log::debug!("unhandled kind");
-                            log::debug!("error termination: {:?}", err);
+                            tracing::debug!("unhandled kind");
+                            tracing::debug!("error termination: {:?}", err);
                         }
                     },
                 }
@@ -136,24 +137,24 @@ impl Dispatcher {
                 webservice,
                 acceptor,
             } => {
-                log::debug!("to https_serve_conn");
+                tracing::debug!("to https_serve_conn");
                 match webservice
                     .https_serve_conn(clientsock, acceptor.clone())
                     .await
                 {
                     io::Result::Ok(_) => {
-                        log::debug!("normal termination");
+                        tracing::debug!("normal termination");
                     }
                     io::Result::Err(err) => match err.kind() {
                         std::io::ErrorKind::UnexpectedEof => {
-                            log::debug!("ignoring EOF");
+                            tracing::debug!("ignoring EOF");
                         }
                         std::io::ErrorKind::InvalidData => {
-                            log::debug!("tls abort");
+                            tracing::debug!("tls abort");
                         }
                         _ => {
-                            log::debug!("unhandled kind");
-                            log::debug!("error termination: {:?}", err);
+                            tracing::debug!("unhandled kind");
+                            tracing::debug!("error termination: {:?}", err);
                         }
                     },
                 };
@@ -161,21 +162,18 @@ impl Dispatcher {
         }
     }
     // Dispatchers determine how to execute
-    pub fn from_mappingentry_tlses(
-        me: &MappingEntry,
-        tlses: Arc<HashMap<String, Arc<TlsAcceptor>>>,
-    ) -> Option<Dispatcher> {
+    pub fn from_mappingentry(me: &MappingEntry) -> Option<Dispatcher> {
         if let Some(tlsname) = &me.tls {
-            if let Some(acceptor) = tlses.get(tlsname) {
+            if let Some(acceptor) = crate::TLSMAP.get(tlsname) {
                 if let Some(downstreams) = &me.downstreams {
-                    log::debug!("TLSWrappedDownstreamDispatcher");
+                    tracing::debug!("TLSWrappedDownstreamDispatcher");
                     return Some(Dispatcher::TLSWrappedDownstreamDispatcher {
                         downstreams: downstreams.clone(),
                         acceptor: acceptor.clone(),
                     });
                 }
                 if let Some(response_code) = me.response_code {
-                    log::debug!("HTTPSStaticDispatcher");
+                    tracing::debug!("HTTPSStaticDispatcher");
                     if let Some(response_body) = &me.response_body {
                         return Some(Dispatcher::HTTPSStaticDispatcher {
                             webservice: WebService::new(response_code, response_body.clone()),
@@ -184,12 +182,12 @@ impl Dispatcher {
                     }
                 }
             } else {
-                log::debug!("not found tls acceptor");
+                tracing::debug!("not found tls acceptor");
                 panic!("named tls config not found");
             }
         } else {
             if let Some(downstreams) = &me.downstreams {
-                log::debug!("TCPDownstreamDispatcher");
+                tracing::debug!("TCPDownstreamDispatcher");
                 return Some(Dispatcher::TCPDownstreamDispatcher {
                     downstreams: downstreams.clone(),
                 });
@@ -197,8 +195,8 @@ impl Dispatcher {
         }
         None
     }
-    pub fn from_matching(indicated: &str, matchers: Arc<Vec<Matcher>>) -> Option<Dispatcher> {
-        for matcher in matchers.iter() {
+    pub fn from_indicated(indicated: &str) -> Option<Dispatcher> {
+        for matcher in crate::MATCHLIST.iter() {
             match matcher {
                 Matcher::ExactMatcher {
                     rulename,
@@ -206,10 +204,10 @@ impl Dispatcher {
                     dispatcher,
                 } => {
                     if exact.as_str() == indicated {
-                        log::debug!("rule {} matched exact: {}", rulename, indicated);
+                        tracing::debug!("rule {} matched exact: {}", rulename, indicated);
                         return Some(dispatcher.clone());
                     } else {
-                        log::debug!("rule {} no matched exact: {}", rulename, indicated);
+                        tracing::debug!("rule {} no matched exact: {}", rulename, indicated);
                     }
                 }
                 Matcher::RegexMatcher {
@@ -218,94 +216,21 @@ impl Dispatcher {
                     dispatcher,
                 } => {
                     if regex.is_match(indicated) {
-                        log::debug!("rule {} regexed: {}", rulename, indicated);
+                        tracing::debug!("rule {} regexed: {}", rulename, indicated);
                         return Some(dispatcher.clone());
                     } else {
-                        log::debug!("rule {} no matched regex: {}", rulename, indicated);
+                        tracing::debug!("rule {} no matched regex: {}", rulename, indicated);
                     }
                 }
                 Matcher::UniversalMatcher {
                     rulename,
                     dispatcher,
                 } => {
-                    log::debug!("rule {} universal match", rulename);
+                    tracing::debug!("rule {} universal match", rulename);
                     return Some(dispatcher.clone());
                 }
             }
         }
         None
     }
-}
-
-async fn tcp_proxy_addr(incoming: TcpStream, addr: &String) -> io::Result<()> {
-    let outgoing = TcpStream::connect(addr).await?;
-    tcp_proxy_stream(incoming, outgoing).await
-}
-
-async fn tcp_proxy_stream(mut incoming: TcpStream, mut outgoing: TcpStream) -> io::Result<()> {
-    let (mut ri, mut wi) = incoming.split();
-    let (mut ro, mut wo) = outgoing.split();
-
-    let left = async move {
-        tokio::io::copy(&mut ri, &mut wo).await?;
-        let sr = wo.shutdown().await;
-        if sr.is_err() {
-            // eat the socket close error
-            Ok(())
-        } else {
-            sr
-        }
-    };
-    let right = async move {
-        tokio::io::copy(&mut ro, &mut wi).await?;
-        let sr = wi.shutdown().await;
-        if sr.is_err() {
-            // eat the socket close error
-            Ok(())
-        } else {
-            sr
-        }
-    };
-
-    tokio::try_join!(left, right)?;
-    Ok(())
-}
-
-async fn tls_proxy_stream(incoming: TlsStream<TcpStream>, outgoing: TcpStream) -> io::Result<()> {
-    let (mut ri, mut wi) = tokio::io::split(incoming);
-    let (mut ro, mut wo) = tokio::io::split(outgoing);
-
-    let left = async move {
-        tokio::io::copy(&mut ri, &mut wo).await?;
-        let sr = wo.shutdown().await;
-        if sr.is_err() {
-            // eat the socket close error
-            Ok(())
-        } else {
-            sr
-        }
-    };
-    let right = async move {
-        tokio::io::copy(&mut ro, &mut wi).await?;
-        let sr = wi.shutdown().await;
-        if sr.is_err() {
-            // eat the socket close error
-            Ok(())
-        } else {
-            sr
-        }
-    };
-
-    tokio::try_join!(left, right)?;
-    Ok(())
-}
-
-async fn tls_proxy_addr(
-    incoming: TcpStream,
-    addr: &String,
-    acceptor: Arc<TlsAcceptor>,
-) -> io::Result<()> {
-    let outgoing = TcpStream::connect(addr).await?;
-    let plaintext_stream = acceptor.accept(incoming).await?;
-    tls_proxy_stream(plaintext_stream, outgoing).await
 }

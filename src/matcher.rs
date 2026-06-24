@@ -1,11 +1,8 @@
-use std::{collections::HashMap, sync::Arc};
-
 use regex::Regex;
-use rustls::internal::msgs::enums::AlertLevel;
 use rustls::AlertDescription;
-use tokio_rustls::TlsAcceptor;
+use rustls::internal::msgs::enums::AlertLevel;
 
-use crate::{conf::Configuration, dispatcher::Dispatcher};
+use crate::dispatcher::Dispatcher;
 
 #[derive(Debug)]
 pub enum Matcher {
@@ -30,15 +27,12 @@ pub enum Matcher {
 
 impl Matcher {
     // Matchers define the SNI-to-execution mapping
-    pub fn from_configuration_tlses(
-        cfg_obj: &Configuration,
-        tlses: Arc<HashMap<String, Arc<TlsAcceptor>>>,
-    ) -> Vec<Matcher> {
+    pub fn from_configuration() -> Vec<Matcher> {
         let mut matchers = Vec::<Matcher>::new();
         // TODO: ordering? weights? preserve order feature in config-rs?
-        for (mapname, mapspec) in cfg_obj.mapping.iter() {
-            log::debug!("assembling mapping {}", mapname);
-            if let Some(dispatcher) = Dispatcher::from_mappingentry_tlses(&mapspec, tlses.clone()) {
+        for (mapname, mapspec) in crate::FULLCFG.mapping.iter() {
+            tracing::debug!("assembling mapping {}", mapname);
+            if let Some(dispatcher) = Dispatcher::from_mappingentry(&mapspec) {
                 if mapspec.exact.is_some() && mapspec.regex.is_some() {
                     panic!(
                         "mapping entry {} cannot have both exact and regex matching",

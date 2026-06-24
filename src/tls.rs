@@ -2,23 +2,21 @@ use std::{collections::HashMap, sync::Arc};
 
 use rcgen::generate_simple_self_signed;
 use rustls::crypto::aws_lc_rs::sign::any_supported_type;
-use rustls::{server::WebPkiClientVerifier, RootCertStore};
+use rustls::{RootCertStore, server::WebPkiClientVerifier};
 
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 
 use rustls_pki_types::pem::PemObject;
 use tokio_rustls::TlsAcceptor;
 
-use anyhow::{anyhow, Error, Result};
+use anyhow::{Error, Result, anyhow};
 
-use crate::conf::{Configuration, TlsConfigEntry};
+use crate::conf::TlsConfigEntry;
 
-pub fn acceptors_from_configuration(
-    cfg_obj: &Configuration,
-) -> anyhow::Result<HashMap<String, Arc<TlsAcceptor>>, Error> {
+pub fn acceptors_from_configuration() -> anyhow::Result<HashMap<String, Arc<TlsAcceptor>>, Error> {
     let mut tlses = HashMap::<String, Arc<TlsAcceptor>>::new();
     // if-present, iterate over config-present tls specification sections
-    if let Some(tlscfgs) = &cfg_obj.tls {
+    if let Some(tlscfgs) = &crate::FULLCFG.tls {
         for (tlsname, tlsspec) in tlscfgs.iter() {
             log::debug!("building tlsspec {}", tlsname);
 

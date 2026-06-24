@@ -1,101 +1,72 @@
 #![warn(rust_2018_idioms)]
 
-use config::Config;
-
-use log::info;
-
-use std::sync::Arc;
-use std::{panic, path::PathBuf};
-use structopt::StructOpt;
-use tokio::{
-    io,
-    net::TcpListener,
-    select,
-    signal::unix::{SignalKind, signal},
-    sync::watch,
-    task::JoinSet,
-};
-
-use lurkr::conf::Configuration;
-use lurkr::matcher::Matcher;
-
-#[derive(Debug, StructOpt)]
-struct CliOptions {
-    #[structopt(short, long)]
-    debug: bool,
-
-    #[structopt(short, long, parse(from_os_str))]
-    conf: PathBuf,
-}
+use std::panic;
+use std::sync::atomic::Ordering;
+use tokio::select;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let (stop_tx, mut stop_rx) = watch::channel(());
-
-    let cli_opt = CliOptions::from_args();
-    if cli_opt.debug {
-        env_logger::Builder::new()
-            .filter_level(log::LevelFilter::Debug)
-            .init();
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+    if lurkr::CLI_OPTIONS.debug {
+        // env_logger::Builder::new()
+        //     .filter_level(log::LevelFilter::Debug)
+        //     .init();
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG)
+            .try_init()?;
     } else {
-        env_logger::Builder::new()
-            .filter_level(log::LevelFilter::Info)
-            .init();
+        // env_logger::Builder::new()
+        //     .filter_level(log::LevelFilter::Info)
+        //     .init();
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::INFO)
+            .try_init()?;
     }
 
+    #[cfg(unix)]
     tokio::spawn(async move {
+        use tokio::signal::unix::{SignalKind, signal};
         let mut sigterm = signal(SignalKind::terminate()).unwrap();
         let mut sigint = signal(SignalKind::interrupt()).unwrap();
         loop {
             select! {
-                _ = sigterm.recv() => {log::debug!("SIGTERM receive")},
-                _ = sigint.recv() => {log::debug!("SIGINT receive")},
+                _ = sigterm.recv() => {tracing::debug!("SIGTERM received")},
+                _ = sigint.recv() => {tracing::debug!("SIGINT received")},
             };
-            stop_tx.send(()).unwrap();
+            lurkr::LISTENER_STOP.0.send(()).unwrap();
         }
     });
 
-    let settings = Config::builder()
-        .add_source(config::File::with_name(
-            cli_opt.conf.to_str().expect("invalid pathname"),
-        ))
-        .add_source(config::Environment::with_prefix("LURKR"))
-        .build()
-        .unwrap();
+    #[cfg(windows)]
+    tokio::spawn(async move {
+        use tokio::signal::windows;
 
-    let fullcfg: Configuration = settings
-        .try_deserialize()
-        .expect("could not deserialize configuration");
+        let mut ctrl_break = windows::ctrl_break().unwrap();
+        let mut ctrl_c = windows::ctrl_c().unwrap();
+        let mut ctrl_close = windows::ctrl_close().unwrap();
+        let mut ctrl_logoff = windows::ctrl_logoff().unwrap();
+        let mut ctrl_shutdown = windows::ctrl_shutdown().unwrap();
 
-    let tlsmap = Arc::new(lurkr::tls::acceptors_from_configuration(&fullcfg)?);
-    let matchlist: Arc<Vec<Matcher>> =
-        Arc::new(Matcher::from_configuration_tlses(&fullcfg, tlsmap));
-    let final_addr = format!("{}:{}", fullcfg.listener.addr, fullcfg.listener.port);
-    let lsnr = TcpListener::bind(&final_addr).await?;
-    info!("listening on {}", final_addr);
-
-    let mut conns = JoinSet::new();
-
-    select! {
-        biased;
-        _ = stop_rx.changed() => {log::debug!("bailing due to signal received");},
-        _ = async {
-            loop {
-                let (socket, _) = lsnr.accept().await?;
-                conns.spawn(lurkr::conn::handle_connection(socket, matchlist.clone()));
-            }
-            #[allow(unreachable_code)]
-            Ok::<_, io::Error>(())
-        } => {},
-    }
-    log::info!("vended {} connections", conns.len());
-    // panic now? no, panic later!
-    while let Some(res) = conns.join_next().await {
-        match res {
-            Ok(()) => {}
-            Err(err) if err.is_panic() => panic::resume_unwind(err.into_panic()),
-            Err(err) => panic!("{err}"),
+        loop {
+            select! {
+                _ = ctrl_break.recv() => {tracing::debug!("CTRL-BREAK receive")},
+                _ = ctrl_c.recv() => {tracing::debug!("CTRL-C receive")},
+                _ = ctrl_close.recv() => {tracing::debug!("CTRL-CLOSE receive")},
+                _ = ctrl_logoff.recv() => {tracing::debug!("CTRL-LOGOFF receive")},
+                _ = ctrl_shutdown.recv() => {tracing::debug!("CTRL-SHUTDOWN receive")},
+            };
+            lurkr::LISTENER_STOP.0.send(()).unwrap();
         }
-    }
+    });
+
+    let collector_jh = tokio::spawn(lurkr::tasks::connection_collector());
+    lurkr::tasks::listener().await?;
+    collector_jh.await?;
+
+    tracing::info!(
+        "VENDED: {}, OKAY: {}, PANICED: {}",
+        lurkr::CONNS_VENDED.load(Ordering::Relaxed),
+        lurkr::CONNS_OKAY.load(Ordering::Relaxed),
+        lurkr::CONNS_PANICED.load(Ordering::Relaxed),
+    );
     Ok(())
 }
