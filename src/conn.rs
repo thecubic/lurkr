@@ -34,7 +34,6 @@ pub async fn handle_connection(socket: TcpStream) {
         Ok(None) => {
             // TODO: refactor so it peeks a few times
             tracing::debug!("haven't consumed a ClientHello");
-            return;
         }
         Ok(Some(accepted)) => {
             let ch = accepted.client_hello();
@@ -62,7 +61,6 @@ pub async fn handle_connection(socket: TcpStream) {
         }
         Err((e, alert)) => {
             tracing::debug!("err: {:?} alert: {:?}", e, alert);
-            return;
         }
     }
 }

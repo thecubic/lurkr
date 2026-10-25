@@ -52,7 +52,7 @@ pub static FULLCFG: LazyLock<Configuration> = LazyLock::new(|| {
 pub static TLSMAP: LazyLock<HashMap<String, Arc<TlsAcceptor>>> = LazyLock::new(|| {
     crate::tls::acceptors_from_configuration().expect("couldn't create TLS acceptors")
 });
-pub static MATCHLIST: LazyLock<Vec<Matcher>> = LazyLock::new(|| Matcher::from_configuration());
+pub static MATCHLIST: LazyLock<Vec<Matcher>> = LazyLock::new(Matcher::from_configuration);
 
 #[derive(Debug, StructOpt)]
 pub struct CliOptions {
@@ -69,7 +69,7 @@ pub struct CliOptions {
     pub grace_period: u64,
 }
 
-pub static CLI_OPTIONS: LazyLock<CliOptions> = LazyLock::new(|| CliOptions::from_args());
+pub static CLI_OPTIONS: LazyLock<CliOptions> = LazyLock::new(CliOptions::from_args);
 
 pub static LISTENER_STOP: LazyLock<(Sender<()>, Receiver<()>)> =
     LazyLock::new(|| watch::channel(()));

@@ -30,8 +30,8 @@ pub fn acceptors_from_configuration() -> anyhow::Result<HashMap<String, Arc<TlsA
                     ck.signing_key.serialized_der(),
                 )));
             } else {
-                identity_key = load_key_from_tlsspec(&tlsspec)?;
-                identity_certs = server_certificates(&tlsspec)?;
+                identity_key = load_key_from_tlsspec(tlsspec)?;
+                identity_certs = server_certificates(tlsspec)?;
             }
 
             if identity_certs.is_empty() {
@@ -44,7 +44,7 @@ pub fn acceptors_from_configuration() -> anyhow::Result<HashMap<String, Arc<TlsA
             // Client auth certificates
             let is_clientrequested =
                 tlsspec.client_certbundle.is_some() || tlsspec.client_certbundle_path.is_some();
-            let ccfgcerts = client_certificates(&tlsspec)?;
+            let ccfgcerts = client_certificates(tlsspec)?;
 
             let client_auth = if is_clientrequested {
                 let mut roots = RootCertStore::empty();

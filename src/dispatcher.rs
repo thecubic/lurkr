@@ -94,11 +94,10 @@ impl Dispatcher {
                 // TODO: has to be a better modern way to alert
                 clientsock
                     .write(
-                        &PlainMessage::try_from(Message::build_alert(
+                        &PlainMessage::from(Message::build_alert(
                             *alert_level,
                             *alert_description,
                         ))
-                        .expect("couldn't convert alert to PlainMessage")
                         .into_unencrypted_opaque()
                         .encode(),
                     )

@@ -21,7 +21,7 @@ pub struct WebService {
 impl WebService {
     pub fn new(response_code: u16, response_body: String) -> Self {
         Self {
-            response_code: response_code,
+            response_code,
             response_body: Full::new(Bytes::from(response_body)),
         }
     }
