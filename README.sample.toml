@@ -4,20 +4,26 @@ addr = "127.0.0.1"
 port = 9337
 
 # mapping evaluation is in file ordering
-# no UniversalMatcher at the end == unrecognized_name
+# no universal rule at the end == unrecognized_name
+# matching criteria, any of which matching selects the rule:
+#   names = [..]      exact SNI match against each entry
+#   regexes = [..]    regex SNI match against each entry
+#   universal = true  matches anything
 
 # try: curl --resolve somewhere:9337:127.0.0.1 -k https://somewhere:9337/ -v
-# a RegexMatcher rule, which must regex-match the requested SNI
+# a regexes rule; the requested SNI must match one of the regexes
 # TCP proxy because no TLS specified
 [mapping.somewhere]
-regex = '.*somewhere'
+regexes = ['.*somewhere']
 downstreams = ["localhost:443"]
 
 # try: curl --resolve idontknow:9337:127.0.0.1 -k https://idontknow:9337/ -v
-# an ExactMatcher rule, which must exactly match the requested SNI
+#  or: curl --resolve dunno:9337:127.0.0.1 -k https://dunno:9337/ -v
+# a names rule; the requested SNI must exactly match
+# one of the listed names, attempted in order
 # TLS proxy because TLS specified
 [mapping.idontknow]
-exact = "idontknow"
+names = ["idontknow", "dunno"]
 downstreams = ["localhost:9339"]
 tls = "anon"
 
@@ -26,7 +32,7 @@ tls = "anon"
 # it will mad at lack of client certificate
 # HTTPS proxy because TLS specified and response_code offered
 [mapping.no]
-exact = "no"
+names = ["no"]
 tls = "paranoid"
 response_code = 403
 response_body = "whatever"
@@ -35,27 +41,27 @@ response_body = "whatever"
 # should just be 200 and no body
 # HTTPS proxy because TLS specified and response_code offered
 [mapping.yes]
-exact = "yes"
+names = ["yes"]
 tls = "anon"
 response_code = 200
 response_body = "whatever"
 
 [mapping.noclientcert]
-exact = "noclientcert"
+names = ["noclientcert"]
 tls = "paranoid"
 response_code = 200
 response_body = "client certs"
 
-# a UniversalMatcher rule, which always matches
-# TCP proxy because no TLS specified
+# a universal rule, which always matches
 # try: curl --resolve tlyestotls:9337:127.0.0.1 -k https://tlyestotls:9337/ -v
 [mapping.any]
-regex = ".+"
+universal = true
 tls = "anon"
 response_code = 400
 response_body = "i'm not answering any questions"
 
 # [mapping.final]
+# universal = true
 # downstreams = ["localhost:443"]
 
 # disabled, it will TLS unrecognized_name instead

@@ -32,17 +32,19 @@ pub struct TlsConfigEntry {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MappingEntry {
-    // SNI matching is one of 3 handlings:
+    // SNI matching criteria; the rule matches if any criterion matches.
+    // At least one must be given.
 
-    // ExactMatcher does exact string matching on "exact" field
-    pub exact: Option<String>,
+    // exact string match against each entry, in order
+    pub names: Option<Vec<String>>,
 
-    // RegexMatcher does regex string matching on "regex" field
-    pub regex: Option<String>,
+    // regex match against each entry, in order
+    pub regexes: Option<Vec<String>>,
 
-    // Without "exact" or "regex", the matcher is universal
-    // definitely put UniversalMatcher last in the config
+    // matches everything; definitely put universal rules last in the config
+    pub universal: Option<bool>,
 
     // dispatch this via TCP or wrapped-TLS conn
     pub downstreams: Option<Vec<String>>,

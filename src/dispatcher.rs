@@ -12,7 +12,7 @@ use tokio::{
 use tokio_rustls::TlsAcceptor;
 
 use crate::https::WebService;
-use crate::{conf::MappingEntry, matcher::Matcher};
+use crate::conf::MappingEntry;
 
 impl std::fmt::Debug for Dispatcher {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -197,38 +197,11 @@ impl Dispatcher {
     }
     pub fn from_indicated(indicated: &str) -> Option<Dispatcher> {
         for matcher in crate::MATCHLIST.iter() {
-            match matcher {
-                Matcher::ExactMatcher {
-                    rulename,
-                    exact,
-                    dispatcher,
-                } => {
-                    if exact.as_str() == indicated {
-                        tracing::debug!("rule {} matched exact: {}", rulename, indicated);
-                        return Some(dispatcher.clone());
-                    } else {
-                        tracing::debug!("rule {} no matched exact: {}", rulename, indicated);
-                    }
-                }
-                Matcher::RegexMatcher {
-                    rulename,
-                    regex,
-                    dispatcher,
-                } => {
-                    if regex.is_match(indicated) {
-                        tracing::debug!("rule {} regexed: {}", rulename, indicated);
-                        return Some(dispatcher.clone());
-                    } else {
-                        tracing::debug!("rule {} no matched regex: {}", rulename, indicated);
-                    }
-                }
-                Matcher::UniversalMatcher {
-                    rulename,
-                    dispatcher,
-                } => {
-                    tracing::debug!("rule {} universal match", rulename);
-                    return Some(dispatcher.clone());
-                }
+            if let Some(what) = matcher.matches(indicated) {
+                tracing::debug!("rule {} matched {}: {}", matcher.rulename, what, indicated);
+                return Some(matcher.dispatcher.clone());
+            } else {
+                tracing::debug!("rule {} no match: {}", matcher.rulename, indicated);
             }
         }
         None
