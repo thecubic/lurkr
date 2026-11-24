@@ -1,4 +1,14 @@
 # lurkr SNI routing definition file
+
+# process-wide settings; the whole section and every entry are optional
+# explicit command-line arguments take precedence over these
+[global]
+# debug-level logging (same as --debug)
+debug = false
+# seconds to wait before soft termination, and again before hard
+# termination, of live connections at shutdown (same as --grace-period)
+grace_period = 1
+
 [listener]
 addr = "127.0.0.1"
 port = 9337

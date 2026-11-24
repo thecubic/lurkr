@@ -11,8 +11,8 @@ use tokio::{
 };
 use tokio_rustls::TlsAcceptor;
 
-use crate::https::WebService;
 use crate::conf::MappingEntry;
+use crate::https::WebService;
 
 impl std::fmt::Debug for Dispatcher {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -93,13 +93,10 @@ impl Dispatcher {
                 tracing::debug!("sending TLS alert & closing stream");
                 // TODO: has to be a better modern way to alert
                 clientsock
-                    .write(
-                        &PlainMessage::from(Message::build_alert(
-                            *alert_level,
-                            *alert_description,
-                        ))
-                        .into_unencrypted_opaque()
-                        .encode(),
+                    .write_all(
+                        &PlainMessage::from(Message::build_alert(*alert_level, *alert_description))
+                            .into_unencrypted_opaque()
+                            .encode(),
                     )
                     .await
                     .expect("Error sending TLS alert");

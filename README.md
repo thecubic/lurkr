@@ -11,6 +11,10 @@ or
 
 with the sample config it will listen on `localhost:9337`
 
+debug logging and the shutdown grace period can also be set in the
+optional `[global]` section of the configuration (`debug`,
+`grace_period`); explicit `--debug` / `--grace-period` arguments win
+
 you can then test connection with the `openssl s_client`:
 
 `openssl s_client -servername blah.google.com -connect localhost:9337`

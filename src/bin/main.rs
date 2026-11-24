@@ -6,7 +6,7 @@ use tokio::select;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-    if lurkr::CLI_OPTIONS.debug {
+    if *lurkr::DEBUG {
         // env_logger::Builder::new()
         //     .filter_level(log::LevelFilter::Debug)
         //     .init();

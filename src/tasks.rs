@@ -38,10 +38,10 @@ pub async fn connection_terminator() {
     tracing::debug!("terminating connections");
     if !crate::SCONNS.lock().await.is_empty() {
         tracing::debug!("pending connections exist, entering grace period");
-        tokio::time::sleep(Duration::from_secs(crate::CLI_OPTIONS.grace_period)).await;
+        tokio::time::sleep(*crate::GRACE_PERIOD).await;
         tracing::debug!("signalling all connections to die");
         crate::CONNECTION_STOP.0.send(()).ok();
-        tokio::time::sleep(Duration::from_secs(crate::CLI_OPTIONS.grace_period)).await;
+        tokio::time::sleep(*crate::GRACE_PERIOD).await;
     }
     tracing::debug!("finally killing all connection tasks");
     crate::SCONNS.lock().await.shutdown().await;

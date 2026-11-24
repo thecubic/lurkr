@@ -5,6 +5,7 @@ use std::{
         Arc, LazyLock,
         atomic::{AtomicBool, AtomicU32},
     },
+    time::Duration,
 };
 
 use config::Config;
@@ -65,11 +66,36 @@ pub struct CliOptions {
     pub conf: PathBuf,
 
     /// Grace period seconds before soft termination and then hard
-    #[structopt(default_value = "1", short, long)]
-    pub grace_period: u64,
+    /// [default: 1, or `global.grace_period` from the configuration]
+    #[structopt(short, long)]
+    pub grace_period: Option<u64>,
 }
 
+pub const DEFAULT_GRACE_PERIOD_SECS: u64 = 1;
+
 pub static CLI_OPTIONS: LazyLock<CliOptions> = LazyLock::new(CliOptions::from_args);
+
+/// Effective debug setting: `--debug` forces it on, otherwise
+/// `global.debug` from the configuration, otherwise off.
+pub static DEBUG: LazyLock<bool> = LazyLock::new(|| {
+    CLI_OPTIONS.debug
+        || FULLCFG
+            .global
+            .as_ref()
+            .and_then(|g| g.debug)
+            .unwrap_or(false)
+});
+
+/// Effective grace period: explicit `--grace-period`, otherwise
+/// `global.grace_period` from the configuration, otherwise the default.
+pub static GRACE_PERIOD: LazyLock<Duration> = LazyLock::new(|| {
+    Duration::from_secs(
+        CLI_OPTIONS
+            .grace_period
+            .or_else(|| FULLCFG.global.as_ref().and_then(|g| g.grace_period))
+            .unwrap_or(DEFAULT_GRACE_PERIOD_SECS),
+    )
+});
 
 pub static LISTENER_STOP: LazyLock<(Sender<()>, Receiver<()>)> =
     LazyLock::new(|| watch::channel(()));

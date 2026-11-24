@@ -4,11 +4,24 @@ use std::collections::HashMap;
 
 #[derive(Debug, Deserialize)]
 pub struct Configuration {
+    // process-wide settings; every entry is optional
+    pub global: Option<Global>,
     pub listener: Listener,
     // order preservation must be here otherwise the rules match in random order
     // this is a PITA while developing but also very funny
     pub mapping: IndexMap<String, MappingEntry>,
     pub tls: Option<HashMap<String, TlsConfigEntry>>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Global {
+    // enable debug-level logging; the --debug CLI flag still forces it on
+    pub debug: Option<bool>,
+
+    // grace period seconds before soft termination and then hard;
+    // an explicit --grace-period CLI argument takes precedence
+    pub grace_period: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
