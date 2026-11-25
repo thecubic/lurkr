@@ -4,12 +4,14 @@ use rustls::internal::msgs::{
     enums::AlertLevel,
     message::{Message, PlainMessage},
 };
-use std::{fmt::Formatter, sync::Arc};
+use std::{collections::HashMap, fmt::Formatter, sync::Arc};
 use tokio::{
     io::{self, AsyncWriteExt},
     net::TcpStream,
 };
 use tokio_rustls::TlsAcceptor;
+
+use anyhow::anyhow;
 
 use crate::conf::MappingEntry;
 use crate::https::WebService;
@@ -158,41 +160,43 @@ impl Dispatcher {
         }
     }
     // Dispatchers determine how to execute
-    pub fn from_mappingentry(me: &MappingEntry) -> Option<Dispatcher> {
+    pub fn from_mappingentry(
+        me: &MappingEntry,
+        tlsmap: &HashMap<String, Arc<TlsAcceptor>>,
+    ) -> anyhow::Result<Option<Dispatcher>> {
         if let Some(tlsname) = &me.tls {
-            if let Some(acceptor) = crate::TLSMAP.get(tlsname) {
+            if let Some(acceptor) = tlsmap.get(tlsname) {
                 if let Some(downstreams) = &me.downstreams {
                     tracing::debug!("TLSWrappedDownstreamDispatcher");
-                    return Some(Dispatcher::TLSWrappedDownstreamDispatcher {
+                    return Ok(Some(Dispatcher::TLSWrappedDownstreamDispatcher {
                         downstreams: downstreams.clone(),
                         acceptor: acceptor.clone(),
-                    });
+                    }));
                 }
                 if let Some(response_code) = me.response_code {
                     tracing::debug!("HTTPSStaticDispatcher");
                     if let Some(response_body) = &me.response_body {
-                        return Some(Dispatcher::HTTPSStaticDispatcher {
+                        return Ok(Some(Dispatcher::HTTPSStaticDispatcher {
                             webservice: WebService::new(response_code, response_body.clone()),
                             acceptor: acceptor.clone(),
-                        });
+                        }));
                     }
                 }
             } else {
-                tracing::debug!("not found tls acceptor");
-                panic!("named tls config not found");
+                return Err(anyhow!("named tls config {} not found", tlsname));
             }
         } else {
             if let Some(downstreams) = &me.downstreams {
                 tracing::debug!("TCPDownstreamDispatcher");
-                return Some(Dispatcher::TCPDownstreamDispatcher {
+                return Ok(Some(Dispatcher::TCPDownstreamDispatcher {
                     downstreams: downstreams.clone(),
-                });
+                }));
             }
         }
-        None
+        Ok(None)
     }
     pub fn from_indicated(indicated: &str) -> Option<Dispatcher> {
-        for matcher in crate::MATCHLIST.iter() {
+        for matcher in crate::matchers() {
             if let Some(what) = matcher.matches(indicated) {
                 tracing::debug!("rule {} matched {}: {}", matcher.rulename, what, indicated);
                 return Some(matcher.dispatcher.clone());

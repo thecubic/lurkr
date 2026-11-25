@@ -41,7 +41,7 @@ pub(crate) async fn tcp_proxy_stream(
     };
 
     // tokio::try_join!(left, right)?;
-    let mut stopper = crate::CONNECTION_STOP.1.clone();
+    let mut stopper = crate::connection_stop().1.clone();
     select! {
         biased;
         _ = stopper.changed() => {log::debug!("stopping connection"); },
@@ -79,7 +79,7 @@ pub(crate) async fn tls_proxy_stream(
         }
     };
     // 'vayacondios: loop {
-    let mut stopper = crate::CONNECTION_STOP.1.clone();
+    let mut stopper = crate::connection_stop().1.clone();
     select! {
         biased;
         _ = stopper.changed() => {log::debug!("stopping connection"); },

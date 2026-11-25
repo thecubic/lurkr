@@ -1,7 +1,13 @@
+use std::{collections::HashMap, sync::Arc};
+
+use anyhow::{Context, bail};
 use regex::Regex;
 use rustls::AlertDescription;
 use rustls::internal::msgs::enums::AlertLevel;
 
+use tokio_rustls::TlsAcceptor;
+
+use crate::conf::Configuration;
 use crate::dispatcher::Dispatcher;
 
 // A single matcher type; a rule matches the requested SNI when any of
@@ -33,18 +39,23 @@ impl Matcher {
     }
 
     // Matchers define the SNI-to-execution mapping
-    pub fn from_configuration() -> Vec<Matcher> {
+    pub fn from_configuration(
+        cfg: &Configuration,
+        tlsmap: &HashMap<String, Arc<TlsAcceptor>>,
+    ) -> anyhow::Result<Vec<Matcher>> {
         let mut matchers = Vec::<Matcher>::new();
-        for (mapname, mapspec) in crate::FULLCFG.mapping.iter() {
+        for (mapname, mapspec) in cfg.mapping.iter() {
             tracing::debug!("assembling mapping {}", mapname);
-            let Some(dispatcher) = Dispatcher::from_mappingentry(mapspec) else {
-                panic!("mapping entry {} is not dispatchable", mapname);
+            let Some(dispatcher) = Dispatcher::from_mappingentry(mapspec, tlsmap)
+                .with_context(|| format!("mapping entry {}", mapname))?
+            else {
+                bail!("mapping entry {} is not dispatchable", mapname);
             };
             if mapspec.names.as_ref().is_some_and(|n| n.is_empty()) {
-                panic!("mapping entry {} has an empty names list", mapname);
+                bail!("mapping entry {} has an empty names list", mapname);
             }
             if mapspec.regexes.as_ref().is_some_and(|r| r.is_empty()) {
-                panic!("mapping entry {} has an empty regexes list", mapname);
+                bail!("mapping entry {} has an empty regexes list", mapname);
             }
             let names = mapspec.names.clone().unwrap_or_default();
             let regexes: Vec<Regex> = mapspec
@@ -52,14 +63,13 @@ impl Matcher {
                 .iter()
                 .flatten()
                 .map(|r| {
-                    Regex::new(r).unwrap_or_else(|e| {
-                        panic!("faulty regex {} in mapping {}: {}", r, mapname, e)
-                    })
+                    Regex::new(r)
+                        .with_context(|| format!("faulty regex {} in mapping {}", r, mapname))
                 })
-                .collect();
+                .collect::<anyhow::Result<_>>()?;
             let universal = mapspec.universal.unwrap_or(false);
             if !universal && names.is_empty() && regexes.is_empty() {
-                panic!(
+                bail!(
                     "mapping entry {} has no matching criteria (names, regexes, or universal = true)",
                     mapname
                 );
@@ -91,6 +101,6 @@ impl Matcher {
             regexes: vec![],
             universal: true,
         });
-        matchers
+        Ok(matchers)
     }
 }

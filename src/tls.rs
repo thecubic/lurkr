@@ -11,12 +11,14 @@ use tokio_rustls::TlsAcceptor;
 
 use anyhow::{Error, Result, anyhow};
 
-use crate::conf::TlsConfigEntry;
+use crate::conf::{Configuration, TlsConfigEntry};
 
-pub fn acceptors_from_configuration() -> anyhow::Result<HashMap<String, Arc<TlsAcceptor>>, Error> {
+pub fn acceptors_from_configuration(
+    cfg: &Configuration,
+) -> anyhow::Result<HashMap<String, Arc<TlsAcceptor>>, Error> {
     let mut tlses = HashMap::<String, Arc<TlsAcceptor>>::new();
     // if-present, iterate over config-present tls specification sections
-    if let Some(tlscfgs) = &crate::FULLCFG.tls {
+    if let Some(tlscfgs) = &cfg.tls {
         for (tlsname, tlsspec) in tlscfgs.iter() {
             log::debug!("building tlsspec {}", tlsname);
 
@@ -35,11 +37,15 @@ pub fn acceptors_from_configuration() -> anyhow::Result<HashMap<String, Arc<TlsA
             }
 
             if identity_certs.is_empty() {
-                panic!("missing workable entry for tls config (missing certs)");
+                return Err(anyhow!(
+                    "missing workable entry for tls config {} (missing certs)",
+                    tlsname
+                ));
             }
 
             // to make sure it explodes if unsupported
-            let _signing_key = any_supported_type(&identity_key).expect("unsupported key");
+            let _signing_key = any_supported_type(&identity_key)
+                .map_err(|e| anyhow!("unsupported key in tls config {}: {}", tlsname, e))?;
 
             // Client auth certificates
             let is_clientrequested =
@@ -102,15 +108,14 @@ pub fn server_certificates(
     if let Some(certliteral) = &tlsspec.certs {
         log::debug!("NI: loading certs from literal");
         Ok(CertificateDer::pem_slice_iter(certliteral.as_bytes())
-            .map(|cert| cert.unwrap().into_owned())
-            .collect())
+            .map(|cert| cert.map(|c| c.into_owned()))
+            .collect::<Result<_, _>>()?)
     } else if let Some(certs_path) = &tlsspec.certs_path {
         // load certs from file
         log::debug!("loading certs from file");
-        Ok(CertificateDer::pem_file_iter(certs_path)
-            .unwrap()
-            .map(|cert| cert.unwrap().into_owned())
-            .collect())
+        Ok(CertificateDer::pem_file_iter(certs_path)?
+            .map(|cert| cert.map(|c| c.into_owned()))
+            .collect::<Result<_, _>>()?)
     } else {
         Ok(vec![])
     }
@@ -119,19 +124,14 @@ pub fn server_certificates(
 pub fn client_certificates(tlsspec: &TlsConfigEntry) -> Result<Vec<CertificateDer<'_>>, Error> {
     if let Some(inlinebundle) = &tlsspec.client_certbundle {
         log::debug!("loading client cert trust bundle from literal");
-        Ok(CertificateDer::pem_slice_iter(inlinebundle.as_bytes())
-            .map(|cert| cert.unwrap())
-            .collect())
+        Ok(CertificateDer::pem_slice_iter(inlinebundle.as_bytes()).collect::<Result<_, _>>()?)
     } else if let Some(certbundle_path) = &tlsspec.client_certbundle_path {
         if certbundle_path.is_empty() {
             log::debug!("emptypath skip");
             return Ok(vec![]);
         }
         log::debug!("loading client cert trust bundle from file");
-        Ok(CertificateDer::pem_file_iter(certbundle_path)
-            .unwrap()
-            .map(|cert| cert.unwrap())
-            .collect())
+        Ok(CertificateDer::pem_file_iter(certbundle_path)?.collect::<Result<_, _>>()?)
     } else {
         log::debug!("no client file or literal: okay");
         Ok(vec![])

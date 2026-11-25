@@ -6,21 +6,19 @@ use tokio::select;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-    if *lurkr::DEBUG {
-        // env_logger::Builder::new()
-        //     .filter_level(log::LevelFilter::Debug)
-        //     .init();
+    lurkr::init_config()?;
+
+    if lurkr::debug() {
         tracing_subscriber::fmt()
             .with_max_level(tracing::Level::DEBUG)
             .try_init()?;
     } else {
-        // env_logger::Builder::new()
-        //     .filter_level(log::LevelFilter::Info)
-        //     .init();
         tracing_subscriber::fmt()
             .with_max_level(tracing::Level::INFO)
             .try_init()?;
     }
+
+    lurkr::init_dispatch()?;
 
     #[cfg(unix)]
     tokio::spawn(async move {
@@ -32,7 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>
                 _ = sigterm.recv() => {tracing::debug!("SIGTERM received")},
                 _ = sigint.recv() => {tracing::debug!("SIGINT received")},
             };
-            lurkr::LISTENER_STOP.0.send(()).unwrap();
+            lurkr::listener_stop().0.send(()).unwrap();
         }
     });
 
@@ -54,7 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>
                 _ = ctrl_logoff.recv() => {tracing::debug!("CTRL-LOGOFF receive")},
                 _ = ctrl_shutdown.recv() => {tracing::debug!("CTRL-SHUTDOWN receive")},
             };
-            lurkr::LISTENER_STOP.0.send(()).unwrap();
+            lurkr::listener_stop().0.send(()).unwrap();
         }
     });
 

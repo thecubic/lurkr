@@ -9,42 +9,45 @@ use tokio::{io, net::TcpListener, select, task::JoinHandle};
 pub async fn listener() -> Result<(), anyhow::Error> {
     let final_addr = format!(
         "{}:{}",
-        crate::FULLCFG.listener.addr,
-        crate::FULLCFG.listener.port
+        crate::config().listener.addr,
+        crate::config().listener.port
     );
     let lsnr = TcpListener::bind(&final_addr).await?;
     tracing::info!("listening on {}", final_addr);
 
-    let mut stopper = crate::LISTENER_STOP.1.clone();
+    let mut stopper = crate::listener_stop().1.clone();
     select! {
         biased;
         _ = stopper.changed() => {tracing::debug!("bailing due to signal received");},
         _ = async {
             loop {
                 let (socket, _) = lsnr.accept().await?;
-                crate::SCONNS.lock().await.spawn(crate::conn::handle_connection(socket));
+                crate::connections().lock().await.spawn(crate::conn::handle_connection(socket));
             }
             #[allow(unreachable_code)]
             Ok::<_, io::Error>(())
         } => {},
     }
     drop(lsnr);
-    tracing::info!("vended {} connections", crate::SCONNS.lock().await.len());
+    tracing::info!(
+        "vended {} connections",
+        crate::connections().lock().await.len()
+    );
     crate::CONNS_ENDED.store(true, Ordering::Relaxed);
     Ok(())
 }
 
 pub async fn connection_terminator() {
     tracing::debug!("terminating connections");
-    if !crate::SCONNS.lock().await.is_empty() {
+    if !crate::connections().lock().await.is_empty() {
         tracing::debug!("pending connections exist, entering grace period");
-        tokio::time::sleep(*crate::GRACE_PERIOD).await;
+        tokio::time::sleep(crate::grace_period()).await;
         tracing::debug!("signalling all connections to die");
-        crate::CONNECTION_STOP.0.send(()).ok();
-        tokio::time::sleep(*crate::GRACE_PERIOD).await;
+        crate::connection_stop().0.send(()).ok();
+        tokio::time::sleep(crate::grace_period()).await;
     }
     tracing::debug!("finally killing all connection tasks");
-    crate::SCONNS.lock().await.shutdown().await;
+    crate::connections().lock().await.shutdown().await;
 }
 
 pub async fn connection_collector() {
@@ -54,7 +57,7 @@ pub async fn connection_collector() {
     'mtconnsate: loop {
         let conns_ended = crate::CONNS_ENDED.load(Ordering::Relaxed);
         let mut relax = false;
-        match crate::SCONNS
+        match crate::connections()
             .lock()
             .await
             .poll_join_next_with_id(&mut Context::from_waker(&a))
@@ -84,12 +87,12 @@ pub async fn connection_collector() {
             // without dying ourselves
             // but one way to force it!
             Poll::Ready(Some(Err(err))) if err.is_panic() => {
-                tracing::debug!("panicked: {}", err);
+                tracing::error!("panicked: {}", err);
                 crate::CONNS_PANICED.fetch_add(1, Ordering::Relaxed);
                 crate::CONNS_VENDED.fetch_add(1, Ordering::Relaxed);
             }
             Poll::Ready(Some(Err(err))) => {
-                tracing::debug!("cancelled: {}", err);
+                tracing::warn!("cancelled: {}", err);
                 crate::CONNS_PANICED.fetch_add(1, Ordering::Relaxed);
                 crate::CONNS_VENDED.fetch_add(1, Ordering::Relaxed);
             }
